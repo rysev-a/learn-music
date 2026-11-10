@@ -136,7 +136,8 @@ function beamGroups(score, voice, tl) {
   return groups.filter((g) => g.length > 1);
 }
 
-export function layoutScore(score, width) {
+/** wrap = false: one endless system (the staff scrolls sideways); width is then only the minimum width. */
+export function layoutScore(score, width, wrap = true) {
   const bDia = bottomDia(score.clef);
   const ks = keySignature(score.key);
   const L = barLength(score);
@@ -146,7 +147,7 @@ export function layoutScore(score, width) {
   const total = Math.max(endTime(score.notes), endTime(score.voice2));
   const nBars = total > 0 ? Math.ceil(total / L - EPS) : 0;
   const signs = accidentals(score, times);
-  const avail = width - 2 * MARGIN_X;
+  const avail = wrap ? width - 2 * MARGIN_X : Infinity;
   const headerW = (first) => 44 + (ks.letters.length ? ks.letters.length * 10 + 4 : 0) + (first ? 30 : 0);
   const stepOf = (n) => diatonic(parsePitch(n.pitch)) - bDia;
 
@@ -234,7 +235,7 @@ export function layoutScore(score, width) {
       sys.barlines.push(sys.x0 + sys.header + offset * scale);
     }
     sys.x1 = sys.x0 + sys.header + offset * scale;
-    if (last && !laid.length) sys.x1 = sys.x0 + avail;
+    if (last && !laid.length) sys.x1 = sys.x0 + width - 2 * MARGIN_X;
     maxX = Math.max(maxX, sys.x1 + MARGIN_X);
   });
 
@@ -262,8 +263,8 @@ export function timeToX(layout, t) {
 }
 
 /** @returns {{ svg: string, layout: object }} */
-export function renderScore(score, { width = 860, status = {}, selected = null, cursor = null, dim = null } = {}) {
-  const layout = layoutScore(score, width);
+export function renderScore(score, { width = 860, wrap = true, status = {}, selected = null, cursor = null, dim = null } = {}) {
+  const layout = layoutScore(score, width, wrap);
   const { systems, bDia, ks } = layout;
   const parts = [];
 

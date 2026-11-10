@@ -298,32 +298,57 @@ aside[hidden] { display: none; }
 .staff { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 
 @media (max-width: 640px) {
-  body { font-size: 15px; }
-  .top { padding: 10px 12px 0; }
-  .top h1 { font-size: 19px; }
-  .layout { padding: 8px 8px 24px; }
-  .card { padding: 10px; border-radius: 10px; margin-bottom: 10px; }
+  html:not(.rot) body { font-size: 15px; }
+  html:not(.rot) .top { padding: 10px 12px 0; }
+  html:not(.rot) .top h1 { font-size: 19px; }
+  html:not(.rot) .layout { padding: 8px 8px 24px; }
+  html:not(.rot) .card { padding: 10px; border-radius: 10px; margin-bottom: 10px; }
 
-  .lib-row select { flex: 1 1 100%; min-width: 0; }
-  .lib-row .muted { margin-left: auto; }
+  html:not(.rot) .lib-row select { flex: 1 1 100%; min-width: 0; }
+  html:not(.rot) .lib-row .muted { margin-left: auto; }
 
-  .score-card header { gap: 6px 8px; }
-  .meta { width: 100%; }
-  .meta input[data-meta='title'] { flex: 1 1 100%; width: auto; min-width: 0; }
-  .meta select, .meta input, .meta .tempo { min-height: 36px; }
-  .meta input[type='number'] { width: 70px; }
-  .card-actions { width: 100%; margin-left: 0; }
-  .card-actions button { flex: 1; min-height: 38px; }
+  html:not(.rot) .score-card header { gap: 6px 8px; }
+  html:not(.rot) .meta { width: 100%; }
+  html:not(.rot) .meta input[data-meta='title'] { flex: 1 1 100%; width: auto; min-width: 0; }
+  html:not(.rot) .meta select, html:not(.rot) .meta input, html:not(.rot) .meta .tempo { min-height: 36px; }
+  html:not(.rot) .meta input[type='number'] { width: 70px; }
+  html:not(.rot) .card-actions { width: 100%; margin-left: 0; }
+  html:not(.rot) .card-actions button { flex: 1; min-height: 38px; }
 
   /* the toolbar: touch-sized buttons flowing in two rows, sticky at the top */
-  .score-card .toolbar { margin: 0 -10px 4px; padding: 6px 8px; gap: 4px; justify-content: space-between; }
-  .toolbar .group, .toolbar .group.right { display: contents; }
-  .toolbar button.icon { min-width: 36px; width: 36px; height: 38px; padding: 0; }
-  .toolbar button.icon.glyph { font-size: 21px; }
+  html:not(.rot) .score-card .toolbar { margin: 0 -10px 4px; padding: 6px 8px; gap: 4px; justify-content: space-between; }
+  html:not(.rot) .toolbar .group, html:not(.rot) .toolbar .group.right { display: contents; }
+  html:not(.rot) .toolbar button.icon { min-width: 36px; width: 36px; height: 38px; padding: 0; }
+  html:not(.rot) .toolbar button.icon.glyph { font-size: 21px; }
 
-  .summary { flex-wrap: wrap; }
-  .summary button { margin-left: 0; width: 100%; min-height: 40px; }
-  .issues li { padding: 8px; }
-  .issues .tag { min-width: 60px; }
+  html:not(.rot) .summary { flex-wrap: wrap; }
+  html:not(.rot) .summary button { margin-left: 0; width: 100%; min-height: 40px; }
+  html:not(.rot) .issues li { padding: 8px; }
+  html:not(.rot) .issues .tag { min-width: 60px; }
 }
 [hidden] { display: none !important; }
+
+/* ---- sideways staff, pinch zoom, rotate ---- */
+.top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+#rotate { display: none; min-height: 36px; white-space: nowrap; }
+@media (orientation: portrait) and (max-width: 900px) { #rotate { display: inline-block; } }
+html.rot #rotate { display: inline-block; }
+
+.staff { touch-action: pan-x pan-y; }
+.staff.h-scroll { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; }
+.staff.h-scroll .staff-svg { width: auto; max-width: none; height: auto; }
+
+/* portrait phone turned by CSS: the page is laid out 90deg clockwise, filling the screen */
+html.rot, html.rot body { height: 100%; overflow: hidden; }
+html.rot body {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vh;
+  width: 100dvh;
+  height: 100vw;
+  height: 100dvw;
+  transform-origin: top left;
+  transform: rotate(90deg) translateY(-100%);
+  overflow: auto;
+}

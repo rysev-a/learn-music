@@ -17,7 +17,9 @@ const WHICH = ['original', 'mine'];
 const LABELS = { original: 'Original', mine: 'My notes' };
 const $ = (sel, root = document) => root.querySelector(sel);
 const clone = (x) => JSON.parse(JSON.stringify(x));
-const ZOOMS = [0.5, 0.65, 0.8, 1, 1.25, 1.5, 2, 2.5, 3];
+const ZOOM_MIN = 0.3;
+const ZOOM_MAX = 4;
+const landscapeMQ = matchMedia('(orientation: landscape) and (max-height: 600px)'); // a phone held sideways
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 // ---------- state ----------
@@ -42,8 +44,9 @@ const state = {
   original: saved?.original ?? clone(LIBRARY[0].exercises[0].score),
   mine: saved?.mine ?? emptyScore({ title: 'My notes' }),
   hideOriginal: saved?.hideOriginal ?? false,
-  zoom: ZOOMS.includes(saved?.zoom) ? saved.zoom : innerWidth < 640 ? 0.65 : 1, // scale of the notes: the staff is laid out at width / zoom
+  zoom: Number.isFinite(saved?.zoom) ? clamp(saved.zoom, ZOOM_MIN, ZOOM_MAX) : innerWidth < 640 ? 0.65 : 1, // scale of the notes: the staff is laid out at width / zoom
   lib: validLib(saved?.lib), // which piece / exercise of the library the Original came from
+  rotated: false, // portrait phone turned sideways by CSS (the fallback when the real rotation can't be locked)
   octave: Number.isInteger(saved?.octave) ? clamp(saved.octave, MIN_BASE, MAX_BASE) : 3, // octave of the keyboard's bottom row
   target: 'mine', // which score the toolbar / note list / JSON edit
   dur: 'q',
@@ -214,6 +217,7 @@ function buildCards() {
       }
     });
     cards[which].staff.addEventListener('click', (e) => onStaffClick(which, e));
+    bindPinch(cards[which].staff);
     cards[which].staff.addEventListener('mousemove', (e) => onStaffMove(which, e));
     cards[which].staff.addEventListener('mouseleave', () => $('.ghost', cards[which].staff)?.remove());
 
@@ -281,8 +285,8 @@ function renderLibrary() {
   $('#lib-next').disabled = ex === exercises.length - 1;
   $('#lib-count').textContent = `${ex + 1} of ${exercises.length}`;
   $('#zoom-reset').textContent = `${Math.round(state.zoom * 100)}%`;
-  $('#zoom-out').disabled = state.zoom === ZOOMS[0];
-  $('#zoom-in').disabled = state.zoom === ZOOMS[ZOOMS.length - 1];
+  $('#zoom-out').disabled = state.zoom <= ZOOM_MIN;
+  $('#zoom-in').disabled = state.zoom >= ZOOM_MAX;
   // a composition that is a single piece needs no exercise picker
   $('#lib-exercise').hidden = $('#lib-prev').hidden = $('#lib-next').hidden = $('#lib-count').hidden = exercises.length < 2;
 }
@@ -316,9 +320,17 @@ function renderCard(which) {
   const selected = state.selected?.which === which ? state.selected : null;
   const cursor = state.target === which ? { voice: activeVoice(), t: cursorTime(which) } : null;
   const dim = state.target === which && strict() && score.voice2.length ? 3 - state.voiceChoice : null;
+  const horizontal = isHorizontal();
   const width = Math.max(220, Math.round((staff.clientWidth || 860) / state.zoom));
-  const { svg, layout } = renderScore(score, { width, status, selected, cursor, dim });
+  const { svg, layout } = renderScore(score, { width, wrap: !horizontal, status, selected, cursor, dim });
+  const scrollLeft = staff.scrollLeft;
+  staff.classList.toggle('h-scroll', horizontal);
   staff.innerHTML = svg;
+  const svgEl = $('svg', staff);
+  // sideways: one endless staff at its natural size times the zoom; otherwise it fills the card
+  if (horizontal) svgEl.style.width = `${Math.round(layout.width * state.zoom)}px`;
+  staff.scrollLeft = scrollLeft;
+  if (horizontal && state.target === which) keepInView(staff);
   layouts[which] = layout;
   lint.innerHTML = barIssues(score).map((i) => `<li>${i.message}</li>`).join('');
 }
@@ -333,7 +345,7 @@ function svgPoint(svg, e) {
 }
 
 function onStaffClick(which, e) {
-  if (state.target !== which || !layouts[which]) return;
+  if (state.target !== which || !layouts[which] || Date.now() - pinchEnd < 400) return;
   const noteEl = e.target.closest('[data-i]');
   if (noteEl) {
     const v = Number(noteEl.dataset.v);
@@ -835,18 +847,108 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+const isHorizontal = () => state.rotated || landscapeMQ.matches;
+
 function setZoom(z) {
-  state.zoom = z;
+  state.zoom = Math.round(clamp(z, ZOOM_MIN, ZOOM_MAX) * 100) / 100;
   persist();
   render();
 }
-function stepZoom(dir) {
-  const i = ZOOMS.indexOf(state.zoom);
-  setZoom(ZOOMS[clamp(i + dir, 0, ZOOMS.length - 1)]);
-}
+const stepZoom = (dir) => setZoom(state.zoom * (dir > 0 ? 1.25 : 0.8));
 $('#zoom-in').addEventListener('click', () => stepZoom(1));
 $('#zoom-out').addEventListener('click', () => stepZoom(-1));
 $('#zoom-reset').addEventListener('click', () => setZoom(1));
+
+/** Scroll a sideways staff so the cursor / selected note is visible. */
+function keepInView(staff) {
+  const el = $('.note.selected', staff) ?? $('.cursor', staff);
+  if (!el) return;
+  const r = el.getBoundingClientRect();
+  const box = staff.getBoundingClientRect();
+  if (r.right > box.right - 20) staff.scrollLeft += r.right - box.right + 60;
+  else if (r.left < box.left + 20) staff.scrollLeft -= box.left - r.left + 60;
+}
+
+// both staves scroll together so the original and my notes stay lined up
+let syncing = false;
+function syncScroll(from) {
+  if (syncing) return;
+  syncing = true;
+  for (const which of WHICH) if (cards[which].staff !== from) cards[which].staff.scrollLeft = from.scrollLeft;
+  syncing = false;
+}
+
+// pinch with two fingers on a staff: change the scale, keeping the point between the fingers in place
+const touches = new Map();
+let pinch = null;
+let pinchEnd = 0;
+function onPinch(staff) {
+  const [a, b] = [...touches.values()];
+  const dist = Math.hypot(a.x - b.x, a.y - b.y);
+  if (!pinch) {
+    const cx = (a.x + b.x) / 2 - staff.getBoundingClientRect().left;
+    pinch = { dist, zoom: state.zoom, cx, anchor: (staff.scrollLeft + cx) / state.zoom, raf: 0 };
+  }
+  const z = Math.round(clamp((pinch.zoom * dist) / pinch.dist, ZOOM_MIN, ZOOM_MAX) * 100) / 100;
+  if (z === state.zoom || pinch.raf) return;
+  pinch.raf = requestAnimationFrame(() => {
+    if (!pinch) return;
+    pinch.raf = 0;
+    state.zoom = z;
+    render();
+    if (isHorizontal()) for (const w of WHICH) cards[w].staff.scrollLeft = pinch.anchor * z - pinch.cx;
+  });
+}
+function bindPinch(staff) {
+  staff.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'touch') touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  });
+  staff.addEventListener('pointermove', (e) => {
+    if (!touches.has(e.pointerId)) return;
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (touches.size === 2) onPinch(staff);
+  });
+  const up = (e) => {
+    touches.delete(e.pointerId);
+    if (touches.size < 2 && pinch) {
+      cancelAnimationFrame(pinch.raf);
+      pinch = null;
+      pinchEnd = Date.now();
+      persist();
+      render();
+    }
+  };
+  staff.addEventListener('pointerup', up);
+  staff.addEventListener('pointercancel', up);
+  staff.addEventListener('scroll', () => syncScroll(staff), { passive: true });
+}
+
+// ---------- rotate the screen ----------
+
+function applyRotation() {
+  document.documentElement.classList.toggle('rot', state.rotated);
+  $('#rotate').textContent = state.rotated ? '\u21BA Back' : '\u27F3 Rotate';
+  render();
+}
+
+/** Real rotation when the browser can lock it (Android, in fullscreen); otherwise turn the page by CSS. */
+async function toggleRotate() {
+  if (state.rotated) {
+    state.rotated = false;
+    return applyRotation();
+  }
+  try {
+    await document.documentElement.requestFullscreen();
+    await screen.orientation.lock('landscape');
+    return; // the phone is landscape now; leaving fullscreen unlocks it again
+  } catch {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  }
+  state.rotated = true;
+  applyRotation();
+}
+$('#rotate').addEventListener('click', toggleRotate);
+landscapeMQ.addEventListener('change', render);
 
 // re-lay the staff out when the window (or phone orientation) changes its width
 let lastWidth = 0;
