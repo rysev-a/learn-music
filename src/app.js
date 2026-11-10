@@ -233,11 +233,7 @@ function buildCards() {
     root.addEventListener('click', (e) => {
       const act = e.target.closest('[data-act]')?.dataset.act;
       if (act === 'play') togglePlay(which);
-      if (act === 'hide') {
-        state.hideOriginal = !state.hideOriginal;
-        persist();
-        render();
-      }
+      if (act === 'hide') toggleHideOriginal();
     });
   }
 }
@@ -289,6 +285,21 @@ function renderLibrary() {
   $('#zoom-in').disabled = state.zoom >= ZOOM_MAX;
   // a composition that is a single piece needs no exercise picker
   $('#lib-exercise').hidden = $('#lib-prev').hidden = $('#lib-next').hidden = exercises.length < 2;
+}
+
+function toggleHideOriginal() {
+  state.hideOriginal = !state.hideOriginal;
+  persist();
+  render();
+}
+
+// on a phone the original's Play and Hide / Show live in the top bar (the card's own buttons are hidden by CSS)
+$('#top-play').addEventListener('click', () => togglePlay('original'));
+$('#top-hide').addEventListener('click', toggleHideOriginal);
+function renderTop() {
+  $('#top-play').textContent = state.playing?.which === 'original' ? '\u25A0' : '\u25B6';
+  $('#top-hide').setAttribute('aria-pressed', String(state.hideOriginal));
+  $('#top-hide').title = state.hideOriginal ? 'Show the original' : 'Hide the original';
 }
 
 function isHidden(which) {
@@ -618,6 +629,7 @@ function render() {
   if (sel && !notesOf(sel.which, sel.voice)[sel.index]) state.selected = null;
   for (const which of WHICH) renderCard(which);
   renderLibrary();
+  renderTop();
   renderKeyboard();
   syncToolbar();
   renderNoteList();

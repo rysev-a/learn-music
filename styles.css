@@ -388,3 +388,15 @@ html.rot .top #rotate, #rotate.active { background: var(--accent); border-color:
   html:not(.rot) .top { padding: 4px 6px; gap: 4px; }
   .top #lib-prev, .top #lib-next { display: none; }
 }
+
+/* ---- phone: the original's Play and Hide / Show move into the top bar ---- */
+.top .orig-btn { display: none; }
+.top #top-hide .slash { display: none; }
+.top #top-hide[aria-pressed='true'] .slash { display: inline; }
+.top #top-hide[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: #fff; }
+@media (max-width: 640px) {
+  .top .orig-btn { display: inline-flex; align-items: center; justify-content: center; }
+  .score-card[data-which='original'] .card-actions, .score-card.collapsed { display: none; }
+}
+html.rot .top .orig-btn { display: inline-flex; align-items: center; justify-content: center; }
+html.rot .score-card[data-which='original'] .card-actions, html.rot .score-card.collapsed { display: none; }
