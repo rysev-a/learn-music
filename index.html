@@ -23,6 +23,7 @@
       <button id="zoom-reset" title="Reset scale" aria-label="Reset scale"></button>
       <button class="icon" id="zoom-in" title="Larger notes" aria-label="Larger notes">+</button>
     </div>
+    <button class="icon orig-btn" id="fullscreen" title="Full screen: only the staves" aria-label="Full screen">⛶</button>
     <button class="icon" id="rotate" title="Turn the screen sideways" aria-label="Rotate screen">⟳</button>
   </header>
 
@@ -68,12 +69,22 @@
           <button class="icon" id="undo" title="Undo (Ctrl+Z)" aria-label="Undo">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
           </button>
+          <button class="icon" id="redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>
+          </button>
           <button class="icon" id="clear-mine" title="Clear my notes" aria-label="Clear my notes">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></svg>
           </button>
           <button class="icon primary" id="check" title="Check my notes against the original" aria-label="Check">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
           </button>
+        </div>
+        <div class="group full-only">
+          <button class="icon" id="full-play" title="Play my notes" aria-label="Play my notes">▶</button>
+          <button class="icon" id="full-zoom-out" title="Smaller notes" aria-label="Smaller notes">&minus;</button>
+          <button class="icon" id="full-zoom-in" title="Larger notes" aria-label="Larger notes">+</button>
+          <button class="icon" id="full-rotate" title="Turn the screen" aria-label="Rotate screen">⟳</button>
+          <button class="icon" id="full-exit" title="Leave full screen" aria-label="Leave full screen">✕</button>
         </div>
       </div>
 

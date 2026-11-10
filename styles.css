@@ -400,3 +400,49 @@ html.rot .top #rotate, #rotate.active { background: var(--accent); border-color:
 }
 html.rot .top .orig-btn { display: inline-flex; align-items: center; justify-content: center; }
 html.rot .score-card[data-which='original'] .card-actions, html.rot .score-card.collapsed { display: none; }
+
+/* ---- full screen: only the staves + a tool column on the right ---- */
+.group.full-only { display: none !important; }
+.top #fullscreen { display: none; }
+@media (max-width: 640px) {
+  .top #fullscreen { display: inline-flex; align-items: center; justify-content: center; }
+  .top #zoom-reset { display: none; }
+}
+html.rot .top #fullscreen { display: inline-flex; align-items: center; justify-content: center; }
+
+html.full .top, html.full #result, html.full .library, html.full .score-card header, html.full .score-card .lint { display: none; }
+html.full .score-card.collapsed { display: none; }
+html.full:not(.rot), html.full:not(.rot) body { height: 100%; }
+html.full:not(.rot) body { height: 100dvh; overflow: hidden; }
+html.full.rot body { overflow: hidden; }
+html.full .layout { height: 100%; overflow: auto; padding: 0 96px 0 0; display: block; }
+html.full .card { margin: 0; padding: 0; border-radius: 0; border-width: 0 0 2px; }
+html.full .score-card::before { content: attr(data-label); display: block; position: sticky; left: 0; padding: 2px 8px 0; font-size: 11px; color: var(--muted); }
+html.full .staff { min-height: 0; }
+html.full .score-card .toolbar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: auto;
+  width: 92px;
+  margin: 0;
+  padding: 6px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-auto-rows: min-content;
+  align-content: start;
+  gap: 6px;
+  overflow-y: auto;
+  z-index: 40;
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--card);
+  box-shadow: -4px 0 10px -6px rgba(0, 0, 0, .35);
+}
+html.full .toolbar .group, html.full .toolbar .group.right, html.full .group.full-only { display: contents !important; }
+html.full .toolbar #tool-voice, html.full .toolbar #tool-lock, html.full .toolbar #clear-mine { display: none; }
+html.full .toolbar button.icon { width: 100%; min-width: 0; height: 36px; }
+html.full .toolbar .group + .group { border: 0; padding: 0; }
+html.full .toolbar .voice-btn { display: none; }

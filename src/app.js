@@ -46,6 +46,7 @@ const state = {
   hideOriginal: saved?.hideOriginal ?? false,
   zoom: Number.isFinite(saved?.zoom) ? clamp(saved.zoom, ZOOM_MIN, ZOOM_MAX) : innerWidth < 640 ? 0.65 : 1, // scale of the notes: the staff is laid out at width / zoom
   lib: validLib(saved?.lib), // which piece / exercise of the library the Original came from
+  full: false, // full screen: only the staves and a tool column on the right
   rotated: false, // portrait phone turned sideways by CSS (the fallback when the real rotation can't be locked)
   octave: Number.isInteger(saved?.octave) ? clamp(saved.octave, MIN_BASE, MAX_BASE) : 3, // octave of the keyboard's bottom row
   target: 'mine', // which score the toolbar / note list / JSON edit
@@ -69,12 +70,14 @@ function persist() {
 }
 
 const history = [];
+const future = []; // undone snapshots, for redo
 const snapshot = () => JSON.stringify({ original: state.original, mine: state.mine });
 
 /** Every score change goes through here: undo snapshot, drop stale check result, save, redraw. */
 function commit(mutator) {
   history.push(snapshot());
   if (history.length > 100) history.shift();
+  future.length = 0;
   mutator();
   state.result = null;
   persist();
@@ -84,7 +87,17 @@ function commit(mutator) {
 function undo() {
   const prev = history.pop();
   if (!prev) return;
+  future.push(snapshot());
   Object.assign(state, JSON.parse(prev), { result: null, selected: null, cursor: null });
+  persist();
+  render();
+}
+
+function redo() {
+  const next = future.pop();
+  if (!next) return;
+  history.push(snapshot());
+  Object.assign(state, JSON.parse(next), { result: null, selected: null, cursor: null });
   persist();
   render();
 }
@@ -195,6 +208,7 @@ function buildCards() {
   for (const which of WHICH) {
     const root = tpl.content.firstElementChild.cloneNode(true);
     root.dataset.which = which;
+    root.dataset.label = LABELS[which];
     $('.label', root).textContent = LABELS[which];
     for (const el of root.querySelectorAll('[data-only]')) if (el.dataset.only !== which) el.remove();
 
@@ -510,6 +524,8 @@ function syncToolbar() {
   $('#tool-voice').dataset.strict = String(strict());
   for (const b of document.querySelectorAll('[data-voice]')) b.setAttribute('aria-pressed', String(Number(b.dataset.voice) === activeVoice()));
   $('#undo').disabled = history.length === 0;
+  $('#redo').disabled = future.length === 0;
+  $('#full-play').textContent = state.playing?.which === 'mine' ? '\u25A0' : '\u25B6';
 }
 
 const options = (list, current) => list.map(([v, label]) => `<option value="${v}"${String(v) === String(current) ? ' selected' : ''}>${label}</option>`).join('');
@@ -658,6 +674,7 @@ function bindToolbar() {
     render();
   });
   $('#undo').addEventListener('click', undo);
+  $('#redo').addEventListener('click', redo);
   $('#clear-mine').addEventListener('click', () => {
     commit(() => {
       const o = state.original;
@@ -776,7 +793,7 @@ document.addEventListener('keydown', (e) => {
   if (e.target.closest('input, textarea, select')) return;
   if ((e.metaKey || e.ctrlKey) && (e.code === 'KeyZ' || e.key.toLowerCase() === 'z')) {
     e.preventDefault();
-    return undo();
+    return e.shiftKey ? redo() : undo();
   }
   if (e.metaKey || e.ctrlKey || e.altKey) return;
 
@@ -861,7 +878,7 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-const isHorizontal = () => state.rotated || landscapeMQ.matches;
+const isHorizontal = () => state.rotated || state.full || landscapeMQ.matches;
 
 function setZoom(z) {
   state.zoom = Math.round(clamp(z, ZOOM_MIN, ZOOM_MAX) * 100) / 100;
@@ -897,7 +914,7 @@ function syncScroll(from) {
 const touches = new Map();
 let pinch = null;
 let gestureEnd = 0; // a tap right after a drag / pinch must not place a note
-const scroller = () => (state.rotated ? document.body : document.scrollingElement);
+const scroller = () => (state.full ? $('.layout') : state.rotated ? document.body : document.scrollingElement);
 // the page is turned 90deg clockwise by CSS: screen y is page x, screen x is page -y
 const toPage = (dx, dy) => (state.rotated ? { x: dy, y: -dx } : { x: dx, y: dy });
 const staffsOf = () => WHICH.map((w) => cards[w].staff);
@@ -1013,22 +1030,31 @@ async function toggleRotate() {
   }
   const landscape = innerWidth > innerHeight;
   try {
-    if (document.fullscreenElement) {
-      // already locked: give the screen back
-      screen.orientation.unlock();
-      await document.exitFullscreen();
-      return;
-    }
-    await document.documentElement.requestFullscreen();
+    if (!document.fullscreenElement) await document.documentElement.requestFullscreen();
     await screen.orientation.lock(landscape ? 'portrait' : 'landscape');
     return;
   } catch {
-    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    if (document.fullscreenElement && !state.full) document.exitFullscreen().catch(() => {});
   }
   if (landscape) return; // a phone already sideways: nothing to turn by CSS
   state.rotated = true;
   applyRotation();
 }
+
+/** Full screen: only the staves (an endless canvas to drag and scale) and the tools in a column on the right. */
+function setFull(on) {
+  state.full = on;
+  document.documentElement.classList.toggle('full', on);
+  if (on) document.documentElement.requestFullscreen?.().catch(() => {});
+  else if (document.fullscreenElement && !state.rotated) document.exitFullscreen().catch(() => {});
+  render();
+}
+$('#fullscreen').addEventListener('click', () => setFull(true));
+$('#full-exit').addEventListener('click', () => setFull(false));
+$('#full-rotate').addEventListener('click', toggleRotate);
+$('#full-play').addEventListener('click', () => togglePlay('mine'));
+$('#full-zoom-in').addEventListener('click', () => stepZoom(1));
+$('#full-zoom-out').addEventListener('click', () => stepZoom(-1));
 $('#rotate').addEventListener('click', toggleRotate);
 landscapeMQ.addEventListener('change', render);
 
