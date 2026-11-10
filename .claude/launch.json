@@ -5,7 +5,8 @@
       "name": "learn-music",
       "runtimeExecutable": "python3",
       "runtimeArgs": [
-        "server.py",
+        "-m",
+        "http.server",
         "5173"
       ],
       "port": 5173

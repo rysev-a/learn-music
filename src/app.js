@@ -8,7 +8,9 @@ import { bottomDia, hitTest, renderScore } from './render.js';
 import { compare } from './checker.js';
 import { MAX_BASE, MIN_BASE, keyFromCode, keyLayout, lookupKey } from './keyboard.js';
 import { beep, playScore } from './audio.js';
-import { LIBRARY } from './samples.js';
+import { LIBRARY, loadLibrary } from './library.js';
+
+await loadLibrary(); // init.json -> LIBRARY (before any state is built)
 
 const STORE_KEY = 'learn-music:v1';
 const WHICH = ['original', 'mine'];

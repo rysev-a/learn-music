@@ -1,4 +1,4 @@
-import { emptyScore, parseNotes } from './score.js';
+import { emptyScore, parseNotes } from '../src/score.js';
 
 // Matteo Carcassi, Etude Op.60 No.1 (Allegro, C major, 4/4), bars 1-41.
 // One line per bar, the top voice as written: the guitar bass note that sits in a

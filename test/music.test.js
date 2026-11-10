@@ -3,9 +3,13 @@ import assert from 'node:assert/strict';
 import { validateScore, barIssues, measures, stringifyScore, emptyScore } from '../src/score.js';
 import { compare } from '../src/checker.js';
 import { renderScore, hitTest } from '../src/render.js';
-import { SAMPLES, LIBRARY } from '../src/samples.js';
+import { readFileSync } from 'node:fs';
+import { LIBRARY, allExercises, setLibrary } from '../src/library.js';
 import { keyLayout, lookupKey, keyFromCode } from '../src/keyboard.js';
 import { placeNote, insertIndex, deleteNote, restsFor } from '../src/edit.js';
+
+assert.ok(setLibrary(JSON.parse(readFileSync(new URL('../init.json', import.meta.url), 'utf8'))), 'init.json is a valid library');
+const SAMPLES = allExercises();
 
 const score = (notes, extra = {}) => validateScore({ notes, ...extra }).score;
 const q = (pitch) => ({ pitch, dur: 'q' });

@@ -1,4 +1,4 @@
-import { emptyScore, parseNotes } from './score.js';
+import { emptyScore, parseNotes } from '../src/score.js';
 import { CARCASSI } from './carcassi.js';
 
 const seq = parseNotes;
