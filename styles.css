@@ -352,3 +352,39 @@ html.rot body {
   transform: rotate(90deg) translateY(-100%);
   overflow: auto;
 }
+
+/* ---- one slim top bar: logo, composition, scale, rotate (always on top, top right is the rotate button) ---- */
+:root { --bar-h: 40px; }
+.top, html:not(.rot) .top {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--bar-h);
+  padding: 4px 8px;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+  box-shadow: 0 2px 8px -4px rgba(0, 0, 0, .3);
+}
+.top .logo { font-size: 20px; line-height: 1; flex: none; }
+.top select { height: 30px; padding: 0 4px; font-size: 13px; min-width: 0; flex: 1 1 0; max-width: 260px; }
+.top #lib-exercise { flex: 1 1 0; max-width: 200px; }
+.top button { height: 30px; min-height: 30px; padding: 0 8px; font-size: 14px; flex: none; }
+.top button.icon { min-width: 30px; width: 30px; padding: 0; }
+.top .zoom { margin: 0 0 0 auto; gap: 2px; flex: none; }
+.top .zoom button { min-width: 30px; height: 30px; }
+.top .zoom #zoom-reset { min-width: 46px; font-size: 12px; padding: 0 4px; }
+.top #rotate { display: inline-flex; font-size: 17px; flex: none; }
+html.rot .top #rotate, #rotate.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.layout { padding-top: 8px; }
+/* the note toolbar sticks right under the bar */
+.score-card .toolbar { top: var(--bar-h); }
+.library { display: none; }
+.staff.h-scroll { touch-action: none; }
+.staff:not(.h-scroll) { touch-action: pan-y; }
+@media (max-width: 640px) {
+  html:not(.rot) .top { padding: 4px 6px; gap: 4px; }
+  .top #lib-prev, .top #lib-next { display: none; }
+}

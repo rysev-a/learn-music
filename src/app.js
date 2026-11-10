@@ -4,7 +4,7 @@ import {
   parsePitch, startOf, stringifyScore, validateScore, voiceNotes,
 } from './score.js';
 import { deleteNote, insertIndex, placeNote } from './edit.js';
-import { bottomDia, hitTest, renderScore } from './render.js';
+import { bottomDia, hitTest, layoutScore, renderScore } from './render.js';
 import { compare } from './checker.js';
 import { MAX_BASE, MIN_BASE, keyFromCode, keyLayout, lookupKey } from './keyboard.js';
 import { beep, playScore } from './audio.js';
@@ -288,7 +288,7 @@ function renderLibrary() {
   $('#zoom-out').disabled = state.zoom <= ZOOM_MIN;
   $('#zoom-in').disabled = state.zoom >= ZOOM_MAX;
   // a composition that is a single piece needs no exercise picker
-  $('#lib-exercise').hidden = $('#lib-prev').hidden = $('#lib-next').hidden = $('#lib-count').hidden = exercises.length < 2;
+  $('#lib-exercise').hidden = $('#lib-prev').hidden = $('#lib-next').hidden = exercises.length < 2;
 }
 
 function isHidden(which) {
@@ -321,7 +321,9 @@ function renderCard(which) {
   const cursor = state.target === which ? { voice: activeVoice(), t: cursorTime(which) } : null;
   const dim = state.target === which && strict() && score.voice2.length ? 3 - state.voiceChoice : null;
   const horizontal = isHorizontal();
-  const width = Math.max(220, Math.round((staff.clientWidth || 860) / state.zoom));
+  let width = Math.max(220, Math.round((staff.clientWidth || 860) / state.zoom));
+  // sideways: both staves are as long as the longer one, so they scroll together without clamping
+  if (horizontal) for (const w of WHICH) if (!isHidden(w)) width = Math.max(width, Math.ceil(layoutScore(state[w], 0, false).width));
   const { svg, layout } = renderScore(score, { width, wrap: !horizontal, status, selected, cursor, dim });
   const scrollLeft = staff.scrollLeft;
   staff.classList.toggle('h-scroll', horizontal);
@@ -345,7 +347,7 @@ function svgPoint(svg, e) {
 }
 
 function onStaffClick(which, e) {
-  if (state.target !== which || !layouts[which] || Date.now() - pinchEnd < 400) return;
+  if (state.target !== which || !layouts[which] || Date.now() - gestureEnd < 350) return;
   const noteEl = e.target.closest('[data-i]');
   if (noteEl) {
     const v = Number(noteEl.dataset.v);
@@ -878,44 +880,104 @@ function syncScroll(from) {
   syncing = false;
 }
 
-// pinch with two fingers on a staff: change the scale, keeping the point between the fingers in place
+// Touch on a sideways staff: one finger pans (with a little momentum), two fingers pinch to scale and keep the
+// point between them in place. The staff has touch-action: none, so the browser never takes the gesture over.
 const touches = new Map();
 let pinch = null;
-let pinchEnd = 0;
-function onPinch(staff) {
+let gestureEnd = 0; // a tap right after a drag / pinch must not place a note
+const scroller = () => (state.rotated ? document.body : document.scrollingElement);
+// the page is turned 90deg clockwise by CSS: screen y is page x, screen x is page -y
+const toPage = (dx, dy) => (state.rotated ? { x: dy, y: -dx } : { x: dx, y: dy });
+const staffsOf = () => WHICH.map((w) => cards[w].staff);
+
+function startPinch(staff) {
   const [a, b] = [...touches.values()];
-  const dist = Math.hypot(a.x - b.x, a.y - b.y);
-  if (!pinch) {
-    const cx = (a.x + b.x) / 2 - staff.getBoundingClientRect().left;
-    pinch = { dist, zoom: state.zoom, cx, anchor: (staff.scrollLeft + cx) / state.zoom, raf: 0 };
-  }
-  const z = Math.round(clamp((pinch.zoom * dist) / pinch.dist, ZOOM_MIN, ZOOM_MAX) * 100) / 100;
-  if (z === state.zoom || pinch.raf) return;
-  pinch.raf = requestAnimationFrame(() => {
-    if (!pinch) return;
-    pinch.raf = 0;
-    state.zoom = z;
-    render();
-    if (isHorizontal()) for (const w of WHICH) cards[w].staff.scrollLeft = pinch.anchor * z - pinch.cx;
-  });
+  const box = staff.getBoundingClientRect();
+  const cx = state.rotated ? (a.y + b.y) / 2 - box.top : (a.x + b.x) / 2 - box.left;
+  pinch = { dist: Math.hypot(a.x - b.x, a.y - b.y), zoom: state.zoom, z: state.zoom, cx, anchor: (staff.scrollLeft + cx) / state.zoom, raf: 0 };
 }
+
+function movePinch(staff) {
+  const [a, b] = [...touches.values()];
+  if (!pinch) startPinch(staff);
+  const z = clamp((pinch.zoom * Math.hypot(a.x - b.x, a.y - b.y)) / pinch.dist, ZOOM_MIN, ZOOM_MAX);
+  pinch.z = z;
+  $('#zoom-reset').textContent = `${Math.round(z * 100)}%`;
+  if (isHorizontal()) {
+    // the layout does not depend on the scale here: just resize the drawings, no re-layout while the fingers move
+    for (const w of WHICH) {
+      const svg = $('svg', cards[w].staff);
+      if (svg && layouts[w]) svg.style.width = `${Math.round(layouts[w].width * z)}px`;
+    }
+    for (const st of staffsOf()) st.scrollLeft = pinch.anchor * z - pinch.cx;
+  } else if (!pinch.raf) {
+    pinch.raf = requestAnimationFrame(() => {
+      if (!pinch) return;
+      pinch.raf = 0;
+      state.zoom = Math.round(pinch.z * 100) / 100;
+      render();
+    });
+  }
+}
+
+function endPinch() {
+  cancelAnimationFrame(pinch.raf);
+  const { z, anchor, cx } = pinch;
+  pinch = null;
+  state.zoom = Math.round(z * 100) / 100;
+  persist();
+  render();
+  if (isHorizontal()) for (const st of staffsOf()) st.scrollLeft = anchor * state.zoom - cx;
+}
+
 function bindPinch(staff) {
+  let drag = null;
+  let coast = 0;
   staff.addEventListener('pointerdown', (e) => {
-    if (e.pointerType === 'touch') touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (e.pointerType !== 'touch') return;
+    cancelAnimationFrame(coast);
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    drag = touches.size === 1 ? { id: e.pointerId, moved: 0, vx: 0, t: e.timeStamp } : null;
   });
   staff.addEventListener('pointermove', (e) => {
-    if (!touches.has(e.pointerId)) return;
+    const t = touches.get(e.pointerId);
+    if (!t) return;
+    const dx = e.clientX - t.x;
+    const dy = e.clientY - t.y;
     touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (touches.size === 2) onPinch(staff);
+    if (touches.size === 2) {
+      drag = null;
+      movePinch(staff);
+    } else if (drag?.id === e.pointerId && staff.classList.contains('h-scroll')) {
+      drag.moved += Math.abs(dx) + Math.abs(dy);
+      if (drag.moved < 8) return; // still a tap
+      const d = toPage(dx, dy);
+      staff.scrollLeft -= d.x;
+      scroller().scrollTop -= d.y;
+      const dt = Math.max(1, e.timeStamp - drag.t);
+      drag.vx = 0.8 * drag.vx + 0.2 * (d.x / dt);
+      drag.t = e.timeStamp;
+    }
   });
   const up = (e) => {
-    touches.delete(e.pointerId);
-    if (touches.size < 2 && pinch) {
-      cancelAnimationFrame(pinch.raf);
-      pinch = null;
-      pinchEnd = Date.now();
-      persist();
-      render();
+    if (!touches.delete(e.pointerId)) return;
+    if (pinch && touches.size < 2) {
+      endPinch();
+      gestureEnd = Date.now();
+    }
+    if (drag?.id === e.pointerId) {
+      if (drag.moved >= 8) {
+        gestureEnd = Date.now();
+        let v = Math.abs(drag.vx) > 0.15 && e.timeStamp - drag.t < 80 ? drag.vx : 0; // px/ms, still moving at release
+        const step = () => {
+          if (Math.abs(v) < 0.02) return;
+          staff.scrollLeft -= v * 16;
+          v *= 0.95;
+          coast = requestAnimationFrame(step);
+        };
+        step();
+      }
+      drag = null;
     }
   };
   staff.addEventListener('pointerup', up);
@@ -927,23 +989,31 @@ function bindPinch(staff) {
 
 function applyRotation() {
   document.documentElement.classList.toggle('rot', state.rotated);
-  $('#rotate').textContent = state.rotated ? '\u21BA Back' : '\u27F3 Rotate';
+  $('#rotate').classList.toggle('active', state.rotated);
   render();
 }
 
-/** Real rotation when the browser can lock it (Android, in fullscreen); otherwise turn the page by CSS. */
+/** Turn the view: real rotation when the browser can lock it (Android, in fullscreen); otherwise the page is turned by CSS. */
 async function toggleRotate() {
   if (state.rotated) {
     state.rotated = false;
     return applyRotation();
   }
+  const landscape = innerWidth > innerHeight;
   try {
+    if (document.fullscreenElement) {
+      // already locked: give the screen back
+      screen.orientation.unlock();
+      await document.exitFullscreen();
+      return;
+    }
     await document.documentElement.requestFullscreen();
-    await screen.orientation.lock('landscape');
-    return; // the phone is landscape now; leaving fullscreen unlocks it again
+    await screen.orientation.lock(landscape ? 'portrait' : 'landscape');
+    return;
   } catch {
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   }
+  if (landscape) return; // a phone already sideways: nothing to turn by CSS
   state.rotated = true;
   applyRotation();
 }

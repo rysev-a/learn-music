@@ -8,29 +8,22 @@
 </head>
 <body>
   <header class="top">
-    <h1>♪ Learn Music Notes</h1>
-    <button id="rotate" title="Turn the screen sideways" aria-label="Rotate screen">⟳ Rotate</button>
+    <span class="logo" aria-label="Learn Music Notes" title="Learn Music Notes">♪</span>
+    <select id="lib-piece" aria-label="Composition"></select>
+    <select id="lib-exercise" aria-label="Exercise"></select>
+    <button class="icon" id="lib-prev" title="Previous exercise" aria-label="Previous exercise">◀</button>
+    <button class="icon" id="lib-next" title="Next exercise" aria-label="Next exercise">▶</button>
+    <span class="muted" id="lib-count" hidden></span>
+    <div class="zoom" role="group" aria-label="Scale the notes">
+      <button class="icon" id="zoom-out" title="Smaller notes" aria-label="Smaller notes">&minus;</button>
+      <button id="zoom-reset" title="Reset scale" aria-label="Reset scale"></button>
+      <button class="icon" id="zoom-in" title="Larger notes" aria-label="Larger notes">+</button>
+    </div>
+    <button class="icon" id="rotate" title="Turn the screen sideways" aria-label="Rotate screen">⟳</button>
   </header>
 
   <div class="layout">
     <main>
-      <section class="card library">
-        <h2>Composition</h2>
-        <div class="lib-row">
-          <select id="lib-piece" aria-label="Composition"></select>
-          <select id="lib-exercise" aria-label="Exercise"></select>
-          <button id="lib-prev" title="Previous exercise">◀</button>
-          <button id="lib-next" title="Next exercise">▶</button>
-          <span class="muted" id="lib-count"></span>
-        </div>
-        <div class="zoom" role="group" aria-label="Scale the notes">
-          <span class="muted">Scale</span>
-          <button class="icon" id="zoom-out" title="Smaller notes" aria-label="Smaller notes">&minus;</button>
-          <button id="zoom-reset" title="Reset scale" aria-label="Reset scale"></button>
-          <button class="icon" id="zoom-in" title="Larger notes" aria-label="Larger notes">+</button>
-        </div>
-      </section>
-
       <div class="toolbar">
         <div class="group" id="tool-dur">
           <button class="icon" data-dur="w" title="Whole note (1)" aria-label="Whole note">
