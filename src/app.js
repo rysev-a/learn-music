@@ -17,6 +17,7 @@ const WHICH = ['original', 'mine'];
 const LABELS = { original: 'Original', mine: 'My notes' };
 const $ = (sel, root = document) => root.querySelector(sel);
 const clone = (x) => JSON.parse(JSON.stringify(x));
+const ZOOMS = [0.5, 0.65, 0.8, 1, 1.25, 1.5, 2, 2.5, 3];
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 // ---------- state ----------
@@ -31,7 +32,7 @@ function loadSaved() {
     const raw = JSON.parse(localStorage.getItem(STORE_KEY));
     const o = validateScore(raw?.original);
     const m = validateScore(raw?.mine);
-    if (o.ok && m.ok) return { original: o.score, mine: m.score, hideOriginal: !!raw.hideOriginal, lib: raw.lib, octave: raw.octave };
+    if (o.ok && m.ok) return { original: o.score, mine: m.score, hideOriginal: !!raw.hideOriginal, lib: raw.lib, octave: raw.octave, zoom: raw.zoom };
   } catch {}
   return null;
 }
@@ -41,6 +42,7 @@ const state = {
   original: saved?.original ?? clone(LIBRARY[0].exercises[0].score),
   mine: saved?.mine ?? emptyScore({ title: 'My notes' }),
   hideOriginal: saved?.hideOriginal ?? false,
+  zoom: ZOOMS.includes(saved?.zoom) ? saved.zoom : innerWidth < 640 ? 0.65 : 1, // scale of the notes: the staff is laid out at width / zoom
   lib: validLib(saved?.lib), // which piece / exercise of the library the Original came from
   octave: Number.isInteger(saved?.octave) ? clamp(saved.octave, MIN_BASE, MAX_BASE) : 3, // octave of the keyboard's bottom row
   target: 'mine', // which score the toolbar / note list / JSON edit
@@ -59,7 +61,7 @@ const layouts = { original: null, mine: null };
 
 function persist() {
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify({ original: state.original, mine: state.mine, hideOriginal: state.hideOriginal, lib: state.lib, octave: state.octave }));
+    localStorage.setItem(STORE_KEY, JSON.stringify({ original: state.original, mine: state.mine, hideOriginal: state.hideOriginal, lib: state.lib, octave: state.octave, zoom: state.zoom }));
   } catch {}
 }
 
@@ -278,6 +280,11 @@ function renderLibrary() {
   $('#lib-prev').disabled = ex === 0;
   $('#lib-next').disabled = ex === exercises.length - 1;
   $('#lib-count').textContent = `${ex + 1} of ${exercises.length}`;
+  $('#zoom-reset').textContent = `${Math.round(state.zoom * 100)}%`;
+  $('#zoom-out').disabled = state.zoom === ZOOMS[0];
+  $('#zoom-in').disabled = state.zoom === ZOOMS[ZOOMS.length - 1];
+  // a composition that is a single piece needs no exercise picker
+  $('#lib-exercise').hidden = $('#lib-prev').hidden = $('#lib-next').hidden = $('#lib-count').hidden = exercises.length < 2;
 }
 
 function isHidden(which) {
@@ -309,7 +316,8 @@ function renderCard(which) {
   const selected = state.selected?.which === which ? state.selected : null;
   const cursor = state.target === which ? { voice: activeVoice(), t: cursorTime(which) } : null;
   const dim = state.target === which && strict() && score.voice2.length ? 3 - state.voiceChoice : null;
-  const { svg, layout } = renderScore(score, { status, selected, cursor, dim });
+  const width = Math.max(220, Math.round((staff.clientWidth || 860) / state.zoom));
+  const { svg, layout } = renderScore(score, { width, status, selected, cursor, dim });
   staff.innerHTML = svg;
   layouts[which] = layout;
   lint.innerHTML = barIssues(score).map((i) => `<li>${i.message}</li>`).join('');
@@ -826,6 +834,29 @@ document.addEventListener('keydown', (e) => {
     deleteSelectedOrAt(sel.which, sel.voice, sel.index);
   }
 });
+
+function setZoom(z) {
+  state.zoom = z;
+  persist();
+  render();
+}
+function stepZoom(dir) {
+  const i = ZOOMS.indexOf(state.zoom);
+  setZoom(ZOOMS[clamp(i + dir, 0, ZOOMS.length - 1)]);
+}
+$('#zoom-in').addEventListener('click', () => stepZoom(1));
+$('#zoom-out').addEventListener('click', () => stepZoom(-1));
+$('#zoom-reset').addEventListener('click', () => setZoom(1));
+
+// re-lay the staff out when the window (or phone orientation) changes its width
+let lastWidth = 0;
+new ResizeObserver(() => {
+  const w = cards.mine.staff.clientWidth;
+  if (w && Math.abs(w - lastWidth) > 2) {
+    lastWidth = w;
+    render();
+  }
+}).observe($('#cards'));
 
 buildCards();
 buildLibrary();

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Learn Music Notes</title>
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -21,6 +21,12 @@
           <button id="lib-prev" title="Previous exercise">◀</button>
           <button id="lib-next" title="Next exercise">▶</button>
           <span class="muted" id="lib-count"></span>
+        </div>
+        <div class="zoom" role="group" aria-label="Scale the notes">
+          <span class="muted">Scale</span>
+          <button class="icon" id="zoom-out" title="Smaller notes" aria-label="Smaller notes">&minus;</button>
+          <button id="zoom-reset" title="Reset scale" aria-label="Reset scale"></button>
+          <button class="icon" id="zoom-in" title="Larger notes" aria-label="Larger notes">+</button>
         </div>
       </section>
 
@@ -76,7 +82,7 @@
       <div id="cards"></div>
       <section id="result" class="card"></section>
 
-      <section class="card keyboard" id="keyboard">
+      <section class="card keyboard" id="keyboard" hidden>
         <div class="kb-head">
           <h2>Keyboard</h2>
           <div class="kb-oct">

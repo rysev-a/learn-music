@@ -60,8 +60,5 @@ const exercise = (from, to, name = `bars ${from}-${to}`) => ({
   }),
 });
 
-// 4-bar exercises; the last one takes the closing bar 41 too
-const parts = [];
-for (let from = 1; from <= 37; from += 4) parts.push(exercise(from, from === 37 ? 41 : from + 3));
-
-export const CARCASSI = [...parts, exercise(1, 41, 'bars 1-41 (whole etude)')];
+// the whole etude at once, no splitting into bars
+export const CARCASSI = [exercise(1, 41, 'whole etude')];
