@@ -47,7 +47,6 @@ const state = {
   zoom: Number.isFinite(saved?.zoom) ? clamp(saved.zoom, ZOOM_MIN, ZOOM_MAX) : innerWidth < 640 ? 0.65 : 1, // scale of the notes: the staff is laid out at width / zoom
   lib: validLib(saved?.lib), // which piece / exercise of the library the Original came from
   full: false, // full screen: only the staves and a tool column on the right
-  rotated: false, // portrait phone turned sideways by CSS (the fallback when the real rotation can't be locked)
   octave: Number.isInteger(saved?.octave) ? clamp(saved.octave, MIN_BASE, MAX_BASE) : 3, // octave of the keyboard's bottom row
   target: 'mine', // which score the toolbar / note list / JSON edit
   dur: 'q',
@@ -878,7 +877,7 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-const isHorizontal = () => state.rotated || state.full || landscapeMQ.matches;
+const isHorizontal = () => state.full || landscapeMQ.matches;
 
 function setZoom(z) {
   state.zoom = Math.round(clamp(z, ZOOM_MIN, ZOOM_MAX) * 100) / 100;
@@ -914,15 +913,13 @@ function syncScroll(from) {
 const touches = new Map();
 let pinch = null;
 let gestureEnd = 0; // a tap right after a drag / pinch must not place a note
-const scroller = () => (state.full ? $('.layout') : state.rotated ? document.body : document.scrollingElement);
-// the page is turned 90deg clockwise by CSS: screen y is page x, screen x is page -y
-const toPage = (dx, dy) => (state.rotated ? { x: dy, y: -dx } : { x: dx, y: dy });
+const scroller = () => (state.full ? $('.layout') : document.scrollingElement);
 const staffsOf = () => WHICH.map((w) => cards[w].staff);
 
 function startPinch(staff) {
   const [a, b] = [...touches.values()];
   const box = staff.getBoundingClientRect();
-  const cx = state.rotated ? (a.y + b.y) / 2 - box.top : (a.x + b.x) / 2 - box.left;
+  const cx = (a.x + b.x) / 2 - box.left;
   pinch = { dist: Math.hypot(a.x - b.x, a.y - b.y), zoom: state.zoom, z: state.zoom, cx, anchor: (staff.scrollLeft + cx) / state.zoom, raf: 0 };
 }
 
@@ -980,7 +977,7 @@ function bindPinch(staff) {
     } else if (drag?.id === e.pointerId && staff.classList.contains('h-scroll')) {
       drag.moved += Math.abs(dx) + Math.abs(dy);
       if (drag.moved < 8) return; // still a tap
-      const d = toPage(dx, dy);
+      const d = { x: dx, y: dy };
       staff.scrollLeft -= d.x;
       scroller().scrollTop -= d.y;
       const dt = Math.max(1, e.timeStamp - drag.t);
@@ -1014,48 +1011,19 @@ function bindPinch(staff) {
   staff.addEventListener('scroll', () => syncScroll(staff), { passive: true });
 }
 
-// ---------- rotate the screen ----------
-
-function applyRotation() {
-  document.documentElement.classList.toggle('rot', state.rotated);
-  $('#rotate').classList.toggle('active', state.rotated);
-  render();
-}
-
-/** Turn the view: real rotation when the browser can lock it (Android, in fullscreen); otherwise the page is turned by CSS. */
-async function toggleRotate() {
-  if (state.rotated) {
-    state.rotated = false;
-    return applyRotation();
-  }
-  const landscape = innerWidth > innerHeight;
-  try {
-    if (!document.fullscreenElement) await document.documentElement.requestFullscreen();
-    await screen.orientation.lock(landscape ? 'portrait' : 'landscape');
-    return;
-  } catch {
-    if (document.fullscreenElement && !state.full) document.exitFullscreen().catch(() => {});
-  }
-  if (landscape) return; // a phone already sideways: nothing to turn by CSS
-  state.rotated = true;
-  applyRotation();
-}
-
 /** Full screen: only the staves (an endless canvas to drag and scale) and the tools in a column on the right. */
 function setFull(on) {
   state.full = on;
   document.documentElement.classList.toggle('full', on);
   if (on) document.documentElement.requestFullscreen?.().catch(() => {});
-  else if (document.fullscreenElement && !state.rotated) document.exitFullscreen().catch(() => {});
+  else if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   render();
 }
 $('#fullscreen').addEventListener('click', () => setFull(true));
 $('#full-exit').addEventListener('click', () => setFull(false));
-$('#full-rotate').addEventListener('click', toggleRotate);
 $('#full-play').addEventListener('click', () => togglePlay('mine'));
 $('#full-zoom-in').addEventListener('click', () => stepZoom(1));
 $('#full-zoom-out').addEventListener('click', () => stepZoom(-1));
-$('#rotate').addEventListener('click', toggleRotate);
 landscapeMQ.addEventListener('change', render);
 
 // re-lay the staff out when the window (or phone orientation) changes its width

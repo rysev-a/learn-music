@@ -298,64 +298,45 @@ aside[hidden] { display: none; }
 .staff { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 
 @media (max-width: 640px) {
-  html:not(.rot) body { font-size: 15px; }
-  html:not(.rot) .top { padding: 10px 12px 0; }
-  html:not(.rot) .top h1 { font-size: 19px; }
-  html:not(.rot) .layout { padding: 8px 8px 24px; }
-  html:not(.rot) .card { padding: 10px; border-radius: 10px; margin-bottom: 10px; }
+  body { font-size: 15px; }
+  .top { padding: 10px 12px 0; }
+  .top h1 { font-size: 19px; }
+  .layout { padding: 8px 8px 24px; }
+  .card { padding: 10px; border-radius: 10px; margin-bottom: 10px; }
 
-  html:not(.rot) .lib-row select { flex: 1 1 100%; min-width: 0; }
-  html:not(.rot) .lib-row .muted { margin-left: auto; }
+  .lib-row select { flex: 1 1 100%; min-width: 0; }
+  .lib-row .muted { margin-left: auto; }
 
-  html:not(.rot) .score-card header { gap: 6px 8px; }
-  html:not(.rot) .meta { width: 100%; }
-  html:not(.rot) .meta input[data-meta='title'] { flex: 1 1 100%; width: auto; min-width: 0; }
-  html:not(.rot) .meta select, html:not(.rot) .meta input, html:not(.rot) .meta .tempo { min-height: 36px; }
-  html:not(.rot) .meta input[type='number'] { width: 70px; }
-  html:not(.rot) .card-actions { width: 100%; margin-left: 0; }
-  html:not(.rot) .card-actions button { flex: 1; min-height: 38px; }
+  .score-card header { gap: 6px 8px; }
+  .meta { width: 100%; }
+  .meta input[data-meta='title'] { flex: 1 1 100%; width: auto; min-width: 0; }
+  .meta select, .meta input, .meta .tempo { min-height: 36px; }
+  .meta input[type='number'] { width: 70px; }
+  .card-actions { width: 100%; margin-left: 0; }
+  .card-actions button { flex: 1; min-height: 38px; }
 
   /* the toolbar: touch-sized buttons flowing in two rows, sticky at the top */
-  html:not(.rot) .score-card .toolbar { margin: 0 -10px 4px; padding: 6px 8px; gap: 4px; justify-content: space-between; }
-  html:not(.rot) .toolbar .group, html:not(.rot) .toolbar .group.right { display: contents; }
-  html:not(.rot) .toolbar button.icon { min-width: 36px; width: 36px; height: 38px; padding: 0; }
-  html:not(.rot) .toolbar button.icon.glyph { font-size: 21px; }
+  .score-card .toolbar { margin: 0 -10px 4px; padding: 6px 8px; gap: 4px; justify-content: space-between; }
+  .toolbar .group, .toolbar .group.right { display: contents; }
+  .toolbar button.icon { min-width: 36px; width: 36px; height: 38px; padding: 0; }
+  .toolbar button.icon.glyph { font-size: 21px; }
 
-  html:not(.rot) .summary { flex-wrap: wrap; }
-  html:not(.rot) .summary button { margin-left: 0; width: 100%; min-height: 40px; }
-  html:not(.rot) .issues li { padding: 8px; }
-  html:not(.rot) .issues .tag { min-width: 60px; }
+  .summary { flex-wrap: wrap; }
+  .summary button { margin-left: 0; width: 100%; min-height: 40px; }
+  .issues li { padding: 8px; }
+  .issues .tag { min-width: 60px; }
 }
 [hidden] { display: none !important; }
 
 /* ---- sideways staff, pinch zoom, rotate ---- */
 .top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-#rotate { display: none; min-height: 36px; white-space: nowrap; }
-@media (orientation: portrait) and (max-width: 900px) { #rotate { display: inline-block; } }
-html.rot #rotate { display: inline-block; }
-
 .staff { touch-action: pan-x pan-y; }
 .staff.h-scroll { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; }
 .staff.h-scroll .staff-svg { width: auto; max-width: none; height: auto; }
 
-/* portrait phone turned by CSS: the page is laid out 90deg clockwise, filling the screen */
-html.rot, html.rot body { height: 100%; overflow: hidden; }
-html.rot body {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vh;
-  width: 100dvh;
-  height: 100vw;
-  height: 100dvw;
-  transform-origin: top left;
-  transform: rotate(90deg) translateY(-100%);
-  overflow: auto;
-}
-
-/* ---- one slim top bar: logo, composition, scale, rotate (always on top, top right is the rotate button) ---- */
+/* ---- one slim top bar: logo, composition, original controls, scale, full screen ---- */
 :root { --bar-h: 40px; }
-.top, html:not(.rot) .top {
+.top {
   position: sticky;
   top: 0;
   z-index: 30;
@@ -376,8 +357,6 @@ html.rot body {
 .top .zoom { margin: 0 0 0 auto; gap: 2px; flex: none; }
 .top .zoom button { min-width: 30px; height: 30px; }
 .top .zoom #zoom-reset { min-width: 46px; font-size: 12px; padding: 0 4px; }
-.top #rotate { display: inline-flex; font-size: 17px; flex: none; }
-html.rot .top #rotate, #rotate.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 .layout { padding-top: 8px; }
 /* the note toolbar sticks right under the bar */
 .score-card .toolbar { top: var(--bar-h); }
@@ -385,7 +364,7 @@ html.rot .top #rotate, #rotate.active { background: var(--accent); border-color:
 .staff.h-scroll { touch-action: none; }
 .staff:not(.h-scroll) { touch-action: pan-y; }
 @media (max-width: 640px) {
-  html:not(.rot) .top { padding: 4px 6px; gap: 4px; }
+  .top { padding: 4px 6px; gap: 4px; }
   .top #lib-prev, .top #lib-next { display: none; }
 }
 
@@ -398,23 +377,21 @@ html.rot .top #rotate, #rotate.active { background: var(--accent); border-color:
   .top .orig-btn { display: inline-flex; align-items: center; justify-content: center; }
   .score-card[data-which='original'] .card-actions, .score-card.collapsed { display: none; }
 }
-html.rot .top .orig-btn { display: inline-flex; align-items: center; justify-content: center; }
-html.rot .score-card[data-which='original'] .card-actions, html.rot .score-card.collapsed { display: none; }
 
 /* ---- full screen: only the staves + a tool column on the right ---- */
 .group.full-only { display: none !important; }
 .top #fullscreen { display: none; }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 600px) {
   .top #fullscreen { display: inline-flex; align-items: center; justify-content: center; }
+}
+@media (max-width: 640px) {
   .top #zoom-reset { display: none; }
 }
-html.rot .top #fullscreen { display: inline-flex; align-items: center; justify-content: center; }
 
 html.full .top, html.full #result, html.full .library, html.full .score-card header, html.full .score-card .lint { display: none; }
 html.full .score-card.collapsed { display: none; }
-html.full:not(.rot), html.full:not(.rot) body { height: 100%; }
-html.full:not(.rot) body { height: 100dvh; overflow: hidden; }
-html.full.rot body { overflow: hidden; }
+html.full, html.full body { height: 100%; }
+html.full body { height: 100dvh; overflow: hidden; }
 html.full .layout { height: 100%; overflow: auto; padding: 0 96px 0 0; display: block; }
 html.full .card { margin: 0; padding: 0; border-radius: 0; border-width: 0 0 2px; }
 html.full .score-card::before { content: attr(data-label); display: block; position: sticky; left: 0; padding: 2px 8px 0; font-size: 11px; color: var(--muted); }
