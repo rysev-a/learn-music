@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "learn-music",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "server.py",
+        "5173"
+      ],
+      "port": 5173
+    }
+  ]
+}
