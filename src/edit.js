@@ -1,4 +1,4 @@
-import { REST, beatsOf, timeline } from './score.js';
+import { REST, barLength, beatsOf, timeline } from './score.js';
 
 // Editing one voice of a score by time (in beats), so a second voice stays lined up with the first.
 
@@ -64,4 +64,19 @@ export function deleteNote(notes, index, keepTime) {
   }
   notes[index] = { pitch: REST, dur: notes[index].dur, ...(notes[index].dot && { dot: true }) };
   while (notes.length && notes.at(-1).pitch === REST) notes.pop();
+}
+
+/**
+ * Remove a whole bar (in both voices): the notes that start in it go, the ones after it move left.
+ * @param bar zero-based bar number
+ */
+export function deleteBar(score, bar) {
+  const from = bar * barLength(score);
+  const to = from + barLength(score);
+  for (const key of ['notes', 'voice2']) {
+    const notes = score[key];
+    if (!notes?.length) continue;
+    const times = timeline(notes);
+    score[key] = notes.filter((_, i) => !(times[i].start >= from - EPS && times[i].start < to - EPS));
+  }
 }

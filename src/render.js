@@ -347,6 +347,24 @@ export function renderScore(score, { width = 860, wrap = true, status = {}, sele
 
 export const stepY = (sys, step) => sys.staffBottom - step * STEP;
 
+/** Zero-based number of the bar under a point (SVG coordinates), or -1 outside the music. */
+export function barAt(layout, x, y) {
+  let si = 0;
+  let best = Infinity;
+  layout.systems.forEach((s, k) => {
+    const d = Math.abs(y - (s.staffTop + STAFF_H / 2));
+    if (d < best) [best, si] = [d, k];
+  });
+  let index = 0;
+  for (let k = 0; k < si; k++) index += layout.systems[k].barlines.length;
+  const sys = layout.systems[si];
+  for (const bx of sys.barlines) {
+    if (x <= bx) return index;
+    index++;
+  }
+  return -1;
+}
+
 /** Map a point in SVG coordinates to a staff step and a time (the slot to the right of x). */
 export function hitTest(layout, x, y) {
   let sys = layout.systems[0];

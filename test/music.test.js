@@ -6,7 +6,7 @@ import { renderScore, hitTest } from '../src/render.js';
 import { readFileSync } from 'node:fs';
 import { LIBRARY, allExercises, setLibrary } from '../src/library.js';
 import { keyLayout, lookupKey, keyFromCode } from '../src/keyboard.js';
-import { placeNote, insertIndex, deleteNote, restsFor } from '../src/edit.js';
+import { placeNote, insertIndex, deleteNote, restsFor, deleteBar } from '../src/edit.js';
 
 assert.ok(setLibrary(JSON.parse(readFileSync(new URL('../init.json', import.meta.url), 'utf8'))), 'init.json is a valid library');
 const SAMPLES = allExercises();
@@ -215,4 +215,14 @@ test('editing by time: place, pad with rests, replace, insert, delete', () => {
   deleteNote(v, 0, false); // first voice: the rest closes up
   assert.deepEqual(v.map((n) => n.pitch + n.dur), ['F4q']);
   assert.deepEqual(restsFor(2.5).map((n) => n.dur + (n.dot ? '.' : '')), ['h', 'e']);
+});
+
+test('deleteBar removes a whole bar from both voices and closes the gap', () => {
+  const s = score([q('C4'), q('D4'), q('E4'), q('F4'), q('G4'), q('A4'), q('B4'), q('C5')], { time: '4/4' });
+  s.voice2 = [{ pitch: 'C3', dur: 'w' }, { pitch: 'G3', dur: 'w' }];
+  deleteBar(s, 0);
+  assert.deepEqual(s.notes.map((n) => n.pitch), ['G4', 'A4', 'B4', 'C5']);
+  assert.deepEqual(s.voice2.map((n) => n.pitch), ['G3']);
+  deleteBar(s, 5); // past the end: nothing happens
+  assert.equal(s.notes.length, 4);
 });

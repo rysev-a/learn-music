@@ -419,10 +419,9 @@ html.full .toolbar {
   box-shadow: -4px 0 10px -6px rgba(0, 0, 0, .35);
 }
 html.full .toolbar .group, html.full .toolbar .group.right, html.full .group.full-only { display: contents !important; }
-html.full .toolbar #tool-voice, html.full .toolbar #tool-lock, html.full .toolbar #clear-mine { display: none; }
+html.full .toolbar #tool-lock, html.full .toolbar #clear-mine { display: none; }
 html.full .toolbar button.icon { width: 100%; min-width: 0; height: 36px; }
 html.full .toolbar .group + .group { border: 0; padding: 0; }
-html.full .toolbar .voice-btn { display: none; }
 
 /* ---- mobile polish ---- */
 html { -webkit-text-size-adjust: 100%; overscroll-behavior-y: none; }
@@ -476,3 +475,16 @@ html.full .score-card::before { position: static; }
 html.full .staff { overflow: visible; touch-action: none; }
 html.full .staff .staff-svg { display: block; max-width: none; }
 html.full .card { border-radius: 0; box-shadow: 0 0 0 1px var(--line); }
+
+/* eraser: the choice of note / bar slides out next to it while it is on */
+.erase-opt { display: none; }
+#tool-erase.open .erase-opt { display: inline-flex; align-items: center; justify-content: center; }
+#erase[aria-pressed='true'] { background: #c92a2a; border-color: #c92a2a; }
+.erase-opt[aria-pressed='true'] { background: #fff0f0; border-color: #c92a2a; color: #c92a2a; }
+@media (prefers-color-scheme: dark) { .erase-opt[aria-pressed='true'] { background: #3a1a1a; } }
+
+/* full screen on a phone held sideways: a wider tool column (three buttons per row) so all tools fit */
+@media (orientation: landscape) {
+  html.full .toolbar { width: calc(132px + env(safe-area-inset-right)); grid-template-columns: repeat(3, 1fr); gap: 5px; }
+  html.full .toolbar button.icon { height: 34px; }
+}

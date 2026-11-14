@@ -3,8 +3,8 @@ import {
   barIssues, beatsOf, diatonic, emptyScore, endTime, timeline, formatPitch, fromDiatonic, hasSecondVoice, keyAlterations,
   parsePitch, startOf, stringifyScore, validateScore, voiceNotes,
 } from './score.js';
-import { deleteNote, insertIndex, placeNote } from './edit.js';
-import { bottomDia, hitTest, layoutScore, renderScore } from './render.js';
+import { deleteBar, deleteNote, insertIndex, placeNote } from './edit.js';
+import { STEP, barAt, bottomDia, hitTest, layoutScore, renderScore } from './render.js';
 import { compare } from './checker.js';
 import { MAX_BASE, MIN_BASE, keyFromCode, keyLayout, lookupKey } from './keyboard.js';
 import { beep, playScore } from './audio.js';
@@ -55,6 +55,9 @@ const state = {
   acc: 'auto', // auto = follow key signature
   accLock: false, // true = the accidental stays on for every following note
   rest: false,
+  erase: false, // eraser on: tapping deletes
+  eraseMode: 'note', // 'note' or 'bar'
+  pinned: false, // full screen: position and scale of the board are fixed
   selected: null, // { which, voice, index }
   voiceChoice: null, // 1 or 2 once a voice is picked by hand: only that voice is selected, navigated and edited; null = automatic
   cursor: null, // where the next note goes: { voice, t } in beats; null = after the last note of voice 1
@@ -382,6 +385,7 @@ function svgPoint(svg, e) {
 function onStaffClick(which, e) {
   if (state.target !== which || !layouts[which] || Date.now() - gestureEnd < 350) return;
   const noteEl = e.target.closest('[data-i]');
+  if (state.erase) return eraseAt(which, e, noteEl);
   if (noteEl) {
     const v = Number(noteEl.dataset.v);
     const i = Number(noteEl.dataset.i);
@@ -409,10 +413,33 @@ function onStaffClick(which, e) {
   beep(note.pitch);
 }
 
+function eraseAt(which, e, noteEl) {
+  if (state.eraseMode === 'note') {
+    if (!noteEl) return;
+    const v = Number(noteEl.dataset.v);
+    const i = Number(noteEl.dataset.i);
+    commit(() => {
+      deleteNote(notesOf(which, v), i, v === 2);
+      state.selected = null;
+      state.cursor = null;
+    });
+    return;
+  }
+  const pt = svgPoint($('svg', cards[which].staff), e);
+  const bar = barAt(layouts[which], pt.x, pt.y);
+  if (bar < 0) return;
+  commit(() => {
+    deleteBar(state[which], bar);
+    state.selected = null;
+    state.cursor = null;
+    state.voiceChoice = null;
+  });
+}
+
 function onStaffMove(which, e) {
   const staff = cards[which].staff;
   $('.ghost', staff)?.remove();
-  if (state.target !== which || !layouts[which] || e.target.closest('[data-i]')) return;
+  if (state.erase || state.target !== which || !layouts[which] || e.target.closest('[data-i]')) return;
   const svg = $('svg', staff);
   const pt = svgPoint(svg, e);
   const hit = hitTest(layouts[which], pt.x, pt.y);
@@ -529,6 +556,12 @@ function syncToolbar() {
   $('#tool-rest').setAttribute('aria-pressed', String(state.rest));
   $('#tool-dot').setAttribute('aria-pressed', String(state.dot));
   $('#tool-lock').setAttribute('aria-pressed', String(state.accLock));
+  $('#erase').setAttribute('aria-pressed', String(state.erase));
+  $('#tool-erase').classList.toggle('open', state.erase);
+  for (const b of document.querySelectorAll('[data-erase]')) b.setAttribute('aria-pressed', String(state.erase && b.dataset.erase === state.eraseMode));
+  $('#board-pin').setAttribute('aria-pressed', String(state.pinned));
+  $('#full-zoom-in').disabled = state.pinned || state.zoom >= ZOOM_MAX;
+  $('#full-zoom-out').disabled = state.pinned || state.zoom <= ZOOM_MIN;
   $('#tool-voice').dataset.strict = String(strict());
   for (const b of document.querySelectorAll('[data-voice]')) b.setAttribute('aria-pressed', String(Number(b.dataset.voice) === activeVoice()));
   $('#undo').disabled = history.length === 0;
@@ -679,6 +712,22 @@ function bindToolbar() {
   $('#tool-dot').addEventListener('click', () => setDot(!state.dot));
   $('#tool-rest').addEventListener('click', () => {
     state.rest = !state.rest;
+    render();
+  });
+  // eraser: one tap opens it (the choice of note / bar slides out), the next tap closes it
+  $('#erase').addEventListener('click', () => {
+    state.erase = !state.erase;
+    render();
+  });
+  $('#tool-erase').addEventListener('click', (e) => {
+    const mode = e.target.closest('[data-erase]')?.dataset.erase;
+    if (!mode) return;
+    state.erase = true;
+    state.eraseMode = mode;
+    render();
+  });
+  $('#board-pin').addEventListener('click', () => {
+    state.pinned = !state.pinned;
     render();
   });
   $('#undo').addEventListener('click', undo);
@@ -889,6 +938,7 @@ document.addEventListener('keydown', (e) => {
 const isHorizontal = () => state.full || landscapeMQ.matches;
 
 function setZoom(z) {
+  if (state.full && state.pinned) return;
   const old = state.zoom;
   state.zoom = Math.round(clamp(z, ZOOM_MIN, ZOOM_MAX) * 100) / 100;
   persist();
@@ -1074,16 +1124,18 @@ function zoomAt(z, cx, cy) {
 
 /** Scroll the board so the cursor / selected note is visible. */
 function keepInBoard(staff) {
+  if (state.pinned) return;
   const el = $('.note.selected', staff) ?? $('.cursor', staff);
   if (!el) return;
   const r = el.getBoundingClientRect();
   const v = boardView();
-  const m = 40;
+  const mx = 40; // sideways: scroll a little before the cursor reaches the tools
+  const my = 6; // up / down: only when it would leave the screen
   let moved = false;
-  if (r.right > v.w - m) (board.x -= r.right - v.w + 2 * m), (moved = true);
-  else if (r.left < m) (board.x += m - r.left + m), (moved = true);
-  if (r.bottom > v.h - m) (board.y -= r.bottom - v.h + 2 * m), (moved = true);
-  else if (r.top < m) (board.y += m - r.top + m), (moved = true);
+  if (r.right > v.w - mx) (board.x -= r.right - v.w + 2 * mx), (moved = true);
+  else if (r.left < mx) (board.x += mx - r.left + mx), (moved = true);
+  if (r.bottom > v.h - my) (board.y -= r.bottom - v.h + 3 * my), (moved = true);
+  else if (r.top < my) (board.y += my - r.top + 3 * my), (moved = true);
   if (moved) applyBoard();
 }
 
@@ -1097,7 +1149,7 @@ function bindBoard() {
     return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, d: Math.hypot(a.x - b.x, a.y - b.y) };
   };
   layoutEl.addEventListener('pointerdown', (e) => {
-    if (!state.full || e.pointerType !== 'touch' || e.target.closest('.toolbar')) return;
+    if (!state.full || state.pinned || e.pointerType !== 'touch' || e.target.closest('.toolbar')) return;
     cancelAnimationFrame(coast);
     pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
     drag = pts.size === 1 ? { id: e.pointerId, moved: 0, vx: 0, vy: 0, t: e.timeStamp } : null;
@@ -1105,7 +1157,7 @@ function bindBoard() {
   });
   layoutEl.addEventListener('pointermove', (e) => {
     const p = pts.get(e.pointerId);
-    if (!state.full || !p) return;
+    if (!state.full || state.pinned || !p) return;
     const dx = e.clientX - p.x;
     const dy = e.clientY - p.y;
     if (pts.size === 2) {
@@ -1168,6 +1220,7 @@ function bindBoard() {
     (e) => {
       if (!state.full) return;
       e.preventDefault();
+      if (state.pinned) return;
       if (e.ctrlKey) zoomAt(state.zoom * Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY);
       else {
         board.x -= e.deltaX;
@@ -1179,6 +1232,74 @@ function bindBoard() {
   );
 }
 bindBoard();
+
+
+// ---------- drag a note up or down ----------
+// Press a note and move up / down: it follows in steps of the staff (the key signature decides the accidental).
+// On a touch screen a note must be selected first, so that a drag on any other note still pans the board.
+function bindNoteDrag() {
+  let d = null;
+  const pitchAt = (score, dia) => {
+    const n = clamp(dia, 0, 8 * 7 + 6);
+    return formatPitch(fromDiatonic(n, keyAlterations(score.key)[LETTERS[n % 7]] ?? 0));
+  };
+  $('#cards').addEventListener(
+    'pointerdown',
+    (e) => {
+      if (state.erase || e.button > 0 || (e.pointerType !== 'mouse' && !state.full)) return;
+      const noteEl = e.target.closest('.note');
+      const card = e.target.closest('.score-card');
+      if (!noteEl || !card || card.dataset.which !== state.target || noteEl.classList.contains('dim')) return;
+      const which = state.target;
+      const v = Number(noteEl.dataset.v);
+      const i = Number(noteEl.dataset.i);
+      const note = notesOf(which, v)[i];
+      if (!note || note.pitch === REST) return;
+      const sel = state.selected;
+      if (e.pointerType === 'touch' && !(sel && sel.which === which && sel.voice === v && sel.index === i)) return;
+      e.stopPropagation(); // not a pan of the board
+      d = { id: e.pointerId, which, v, i, cy: e.clientY, dia: diatonic(parsePitch(note.pitch)), moved: false, pushed: false };
+    },
+    true
+  );
+  window.addEventListener('pointermove', (e) => {
+    if (!d || e.pointerId !== d.id) return;
+    const svg = $('svg', cards[d.which].staff);
+    const y = svgPoint(svg, e).y;
+    if (!d.moved) {
+      if (Math.abs(e.clientY - d.cy) < 6) return; // still a tap
+      d.moved = true;
+      d.y0 = y;
+    }
+    const note = notesOf(d.which, d.v)[d.i];
+    if (!note) return;
+    const pitch = pitchAt(state[d.which], d.dia + Math.round((d.y0 - y) / STEP));
+    if (pitch === note.pitch) return;
+    if (!d.pushed) {
+      history.push(snapshot()); // one undo step for the whole drag
+      if (history.length > 100) history.shift();
+      future.length = 0;
+      d.pushed = true;
+    }
+    note.pitch = pitch;
+    state.result = null;
+    state.target = d.which;
+    state.selected = { which: d.which, voice: d.v, index: d.i };
+    beep(pitch);
+    render();
+  });
+  const end = (e) => {
+    if (!d || e.pointerId !== d.id) return;
+    if (d.moved) {
+      gestureEnd = Date.now();
+      persist();
+    }
+    d = null;
+  };
+  window.addEventListener('pointerup', end);
+  window.addEventListener('pointercancel', end);
+}
+bindNoteDrag();
 
 /** Full screen: only the staves (an endless canvas to drag and scale) and the tools in a column on the right. */
 function setFull(on) {
