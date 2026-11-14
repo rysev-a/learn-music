@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { validateScore, barIssues, measures, stringifyScore, emptyScore } from '../src/score.js';
 import { compare } from '../src/checker.js';
-import { renderScore, hitTest } from '../src/render.js';
+import { renderScore, hitTest, layoutScore, gridLines } from '../src/render.js';
 import { readFileSync } from 'node:fs';
 import { LIBRARY, allExercises, setLibrary } from '../src/library.js';
 import { keyLayout, lookupKey, keyFromCode } from '../src/keyboard.js';
@@ -237,4 +237,28 @@ test('piano samples: finite, normalised, decaying, and lower notes ring longer',
   const rms = (x, from, to) => Math.sqrt(x.slice(from, to).reduce((s, v) => s + v * v, 0) / (to - from));
   assert.ok(rms(a4, 4000, 6000) < rms(a4, 400, 2400), 'it dies away');
   assert.ok(c2.length > a4.length, 'low notes are longer');
+});
+
+test('one-bar view: beats are equally wide and the dotted lines are equally spaced', () => {
+  const s = score([q('C4'), { pitch: 'D4', dur: 'e' }, { pitch: 'E4', dur: 'e' }, { pitch: 'F4', dur: 'h' }], { time: '4/4' });
+  const mode = { timed: true, bare: true };
+  const layout = layoutScore(s, 400, true, false, true, mode);
+  const x = (t) => layout.slots.find((sl) => Math.abs(sl.t - t) < 1e-9).x;
+  // notes at 0, 1, 1.5, 2: x is linear in time
+  const perBeat = (x(2) - x(0)) / 2;
+  assert.ok(Math.abs(x(1) - x(0) - perBeat) < 1e-6);
+  assert.ok(Math.abs(x(1.5) - x(0) - 1.5 * perBeat) < 1e-6);
+  for (const size of [4, 2, 1, 0.5, 0.25, 4 / 3, 2 / 3]) {
+    const lines = gridLines(layout, 4, size);
+    assert.equal(lines[0].t, 0);
+    assert.equal(lines.at(-1).t, 4);
+    const gaps = lines.slice(1).map((l, i) => (l.x - lines[i].x) / (l.t - lines[i].t));
+    assert.ok(gaps.every((g) => Math.abs(g - gaps[0]) < 1e-6), 'x per beat is constant for size ' + size);
+  }
+  // a note sits exactly on its dotted line, and the bar line is where the last line is
+  const lines = gridLines(layout, 4, 1);
+  assert.ok(Math.abs(lines[1].x - x(1)) < 1e-6);
+  assert.ok(Math.abs(lines.at(-1).x - layout.systems[0].x1) < 1e-6);
+  // bare: the staff starts right after the key signature (none in C), not after a clef
+  assert.ok(layout.systems[0].header < 10);
 });

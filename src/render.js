@@ -9,6 +9,8 @@ const TOP_PAD = 44; // minimum room above / below the staff; grows when notes ne
 const BOT_PAD = 44;
 const STEM = 34;
 const MARGIN_X = 10;
+/** One-bar view: room between the start of the bar and its first beat (a head, its accidental). */
+export const BAR_PAD_L = 22;
 const ACC_W = 12;
 const DOT_W = 8;
 const NOTE_W = { w: 70, h: 50, q: 36, e: 28 };
@@ -137,7 +139,12 @@ function beamGroups(score, voice, tl) {
 }
 
 /** wrap = false: one endless system (the staff scrolls sideways); width is then only the minimum width. */
-export function layoutScore(score, width, wrap = true, fill = false, stretch = false) {
+/**
+ * mode.timed: notes stand where their time is (equal beats are equal widths) over the whole bar, for a one-bar slice;
+ * mode.bare: no clef and no time signature at the left, only the key signature's sharps / flats.
+ */
+export function layoutScore(score, width, wrap = true, fill = false, stretch = false, mode = null) {
+  const { timed = false, bare = false } = mode ?? {};
   const bDia = bottomDia(score.clef);
   const ks = keySignature(score.key);
   const L = barLength(score);
@@ -148,7 +155,7 @@ export function layoutScore(score, width, wrap = true, fill = false, stretch = f
   const nBars = total > 0 ? Math.ceil(total / L - EPS) : 0;
   const signs = accidentals(score, times);
   const avail = wrap ? width - 2 * MARGIN_X : Infinity;
-  const headerW = (first) => 44 + (ks.letters.length ? ks.letters.length * 10 + 4 : 0) + (first ? 30 : 0);
+  const headerW = (first) => (bare ? (ks.letters.length ? ks.letters.length * 10 + 12 : 4) : 44 + (ks.letters.length ? ks.letters.length * 10 + 4 : 0) + (first ? 30 : 0));
   const stepOf = (n) => diatonic(parsePitch(n.pitch)) - bDia;
 
   // every distinct start time of a bar is one slot; both voices share the slot's x
@@ -219,11 +226,13 @@ export function layoutScore(score, width, wrap = true, fill = false, stretch = f
     const body = sys.used - sys.header;
     const scale = (last && !stretch) || !body ? 1 : Math.max(1, (avail - sys.header) / body); // stretch: even the last system fills the width
     let offset = 0;
+    const timeLeft = sys.x0 + sys.header + BAR_PAD_L;
+    const timeRight = sys.x0 + avail;
     sys.barlines = [];
     sys.slots = [];
     for (const bar of sys.bars) {
       for (const slot of bar.slots) {
-        const x = sys.x0 + sys.header + (offset + slot.cx) * scale;
+        const x = timed ? timeLeft + (slot.t / L) * (timeRight - timeLeft) : sys.x0 + sys.header + (offset + slot.cx) * scale;
         const entry = { t: slot.t, x, system: si };
         slots.push(entry);
         sys.slots.push(entry);
@@ -232,16 +241,17 @@ export function layoutScore(score, width, wrap = true, fill = false, stretch = f
         });
       }
       offset += bar.w;
-      sys.barlines.push(sys.x0 + sys.header + offset * scale);
+      sys.barlines.push(timed ? timeRight : sys.x0 + sys.header + offset * scale);
     }
-    sys.x1 = sys.x0 + sys.header + offset * scale;
+    sys.x1 = timed && sys.bars.length ? timeRight : sys.x0 + sys.header + offset * scale;
     if (last && !laid.length) sys.x1 = sys.x0 + width - 2 * MARGIN_X;
     // a fixed board: the last staff runs to the same end point whatever the score length, so staves line up
     if (fill && last) sys.x1 = Math.max(sys.x1, width - MARGIN_X);
     maxX = Math.max(maxX, sys.x1 + MARGIN_X);
   });
 
-  return { systems, pos, slots, signs, bDia, width: maxX, height: systems.length * sysH, ks, two, times, total };
+  const span = timed ? { left: systems[0].x0 + systems[0].header + BAR_PAD_L, right: systems[0].x1, length: L } : null;
+  return { systems, pos, slots, signs, bDia, width: maxX, height: systems.length * sysH, ks, two, times, total, span };
 }
 
 function beats(n) {
@@ -250,7 +260,8 @@ function beats(n) {
 
 /** x of a point in time (for the input cursor): { x, system }. */
 export function timeToX(layout, t) {
-  const { slots, systems } = layout;
+  const { slots, systems, span } = layout;
+  if (span) return { x: span.left + ((span.right - span.left) * t) / span.length, system: 0 }; // one-bar view: on the dotted line
   if (!slots.length) return { x: systems[0].x0 + systems[0].header + 6, system: 0 };
   const exact = slots.find((s) => Math.abs(s.t - t) < EPS);
   if (exact) return { x: exact.x - 14, system: exact.system };
@@ -265,10 +276,10 @@ export function timeToX(layout, t) {
 }
 
 /** @returns {{ svg: string, layout: object }} */
-export function renderScore(score, { width = 860, wrap = true, status = {}, selected = null, cursor = null, dim = null, fill = false, stretch = false, plain = false, bar = null, base = null } = {}) {
+export function renderScore(score, { width = 860, wrap = true, status = {}, selected = null, cursor = null, dim = null, fill = false, stretch = false, plain = false, bar = null, base = null, timed = false, bare = false } = {}) {
   // bar: { length, size } draws dotted grid lines (size in beats) over a one-bar slice; base: index of the slice's
   // first note in the whole voice, so data-i / selection / status refer to the real notes; plain: no final bar line
-  const layout = layoutScore(score, width, wrap, fill, stretch);
+  const layout = layoutScore(score, width, wrap, fill, stretch, { timed, bare });
   const at = (v) => base?.[v] ?? 0;
   if (bar) layout.grid = gridLines(layout, bar.length, bar.size);
   const { systems, bDia, ks } = layout;
@@ -300,9 +311,9 @@ export function renderScore(score, { width = 860, wrap = true, status = {}, sele
     parts.push(`<line class="bar" x1="${x0}" x2="${x0}" y1="${staffTop}" y2="${staffBottom}"/>`);
     if (bar) for (const g of layout.grid) parts.push(`<line class="grid" x1="${f(g.x)}" x2="${f(g.x)}" y1="${staffTop - 18}" y2="${staffBottom + 18}"/>`);
 
-    // clef
+    // clef (a one-bar view has none)
     const clef = CLEF_GLYPH[score.clef];
-    parts.push(`<text class="clef" x="${x0 + 4}" y="${staffBottom - clef.step * STEP}" font-size="${clef.size}" ${FONT}>${clef.ch}</text>`);
+    if (!bare) parts.push(`<text class="clef" x="${x0 + 4}" y="${staffBottom - clef.step * STEP}" font-size="${clef.size}" ${FONT}>${clef.ch}</text>`);
 
     // key signature
     const sigPitches = score.clef === 'treble'
@@ -311,11 +322,11 @@ export function renderScore(score, { width = 860, wrap = true, status = {}, sele
     ks.letters.forEach((_, k) => {
       const step = diatonic(parsePitch(sigPitches[k])) - bDia;
       const y = staffBottom - step * STEP;
-      parts.push(`<text class="acc" x="${x0 + 44 + k * 10}" y="${f(y + 7)}" font-size="24" ${FONT}>${ks.acc > 0 ? '♯' : '♭'}</text>`);
+      parts.push(`<text class="acc" x="${x0 + (bare ? 6 : 44) + k * 10}" y="${f(y + 7)}" font-size="24" ${FONT}>${ks.acc > 0 ? '♯' : '♭'}</text>`);
     });
 
     // time signature (first system only)
-    if (si === 0) {
+    if (si === 0 && !bare) {
       const [num, den] = score.time.split('/');
       const tx = x0 + sys.header - 18;
       parts.push(`<text class="time" x="${tx}" y="${staffTop + 19}" text-anchor="middle" font-size="26">${num}</text>`);
@@ -355,6 +366,14 @@ export function renderScore(score, { width = 860, wrap = true, status = {}, sele
  * The notes are not spaced by time, so x between two notes is interpolated; at the notes' own times it is exact.
  */
 export function gridLines(layout, length, size) {
+  if (layout.span) {
+    // timed layout: the lines are equally far apart
+    const { left, right } = layout.span;
+    const lines = [{ t: 0, x: left }];
+    for (let k = 1; k * size < length - EPS; k++) lines.push({ t: k * size, x: left + ((right - left) * k * size) / length });
+    lines.push({ t: length, x: right });
+    return lines;
+  }
   const sys = layout.systems[0];
   const left = sys.x0 + sys.header;
   const right = sys.x1;
