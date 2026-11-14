@@ -4,7 +4,7 @@ import {
   parsePitch, startOf, stringifyScore, validateScore, voiceNotes,
 } from './score.js';
 import { deleteBar, deleteNote, insertIndex, placeNote } from './edit.js';
-import { BAR_PAD_L, STEP, barAt, bottomDia, hitTest, layoutScore, renderScore } from './render.js';
+import { BAR_PAD_L, BAR_PAD_R, STEP, barAt, bottomDia, hitTest, layoutScore, renderScore } from './render.js';
 import { compare } from './checker.js';
 import { MAX_BASE, MIN_BASE, keyFromCode, keyLayout, lookupKey } from './keyboard.js';
 import { beep, playScore } from './audio.js';
@@ -17,7 +17,7 @@ const WHICH = ['original', 'mine'];
 const LABELS = { original: 'Original', mine: 'My notes' };
 const $ = (sel, root = document) => root.querySelector(sel);
 const clone = (x) => JSON.parse(JSON.stringify(x));
-const BUILD = '2026-11-14.6';
+const BUILD = '2026-11-14.7';
 $('#build').textContent = `build ${BUILD}`;
 const ZOOM_MIN = 0.3;
 const ZOOM_MAX = 4;
@@ -438,7 +438,7 @@ function barGeometry() {
     head = Math.max(head, keySignature(state[w].key).letters.length * 10 + 12);
     L = Math.max(L, barLength(state[w]));
   }
-  const natural = Math.max(230, head + BAR_PAD_L + (L * 24) / Math.min(...gaps));
+  const natural = Math.max(230, head + BAR_PAD_L + BAR_PAD_R + (L * 24) / Math.min(...gaps));
   let sc = Math.min(2.4, availW / natural);
   const heightAt = (W) => Math.max(...shown.map((w) => layoutScore(sliceBar(w, state.barIndex).slice, W, true, false, true, { timed: true, bare: true }).height));
   sc = Math.min(sc, availH / heightAt(availW / sc));

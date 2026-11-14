@@ -11,6 +11,8 @@ const STEM = 34;
 const MARGIN_X = 10;
 /** One-bar view: room between the start of the bar and its first beat (a head, its accidental). */
 export const BAR_PAD_L = 22;
+/** ... and between its last line (the bar line) and the edge, so the last position is easy to tap. */
+export const BAR_PAD_R = 34;
 const ACC_W = 12;
 const DOT_W = 8;
 const NOTE_W = { w: 70, h: 50, q: 36, e: 28 };
@@ -67,7 +69,7 @@ function drawRest(n, cx, mid, cls, v, i) {
     shape = `<circle class="fill" cx="${cx - 3}" cy="${mid - 5}" r="2.6"/><path class="line" d="M${cx - 3} ${mid - 5} Q${cx + 2} ${mid - 4} ${cx + 4} ${mid - 8} L${cx - 2} ${mid + 12}"/>`;
   }
   if (n.dot) shape += `<circle class="fill" cx="${cx + 12}" cy="${mid - 5}" r="1.8"/>`;
-  return `<g class="note ${cls}" data-v="${v}" data-i="${i}"><rect class="hit" x="${cx - 14}" y="${mid - 18}" width="32" height="36" rx="6"/>${shape}</g>`;
+  return `<g class="note ${cls}" data-v="${v}" data-i="${i}"><rect class="hitpad" x="${cx - 18}" y="${mid - 26}" width="40" height="52"/><rect class="hit" x="${cx - 14}" y="${mid - 18}" width="32" height="36" rx="6"/>${shape}</g>`;
 }
 
 // two = both voices are on the staff: voice 1 stems up, voice 2 stems down, rests pushed apart
@@ -76,7 +78,7 @@ function drawNote(n, v, i, cx, sys, bDia, sign, cls, beam, two) {
   const p = parsePitch(n.pitch);
   const step = diatonic(p) - bDia;
   const y = sys.staffBottom - step * STEP;
-  let g = `<g class="note ${cls}" data-v="${v}" data-i="${i}"><rect class="hit" x="${cx - 15}" y="${f(y - 14)}" width="30" height="28" rx="6"/>`;
+  let g = `<g class="note ${cls}" data-v="${v}" data-i="${i}"><rect class="hitpad" x="${cx - 18}" y="${f(y - 25)}" width="36" height="50"/><rect class="hit" x="${cx - 15}" y="${f(y - 14)}" width="30" height="28" rx="6"/>`;
 
   const ledgers = [];
   if (step <= -2) for (let s = -2; s >= step; s -= 2) ledgers.push(s);
@@ -227,7 +229,7 @@ export function layoutScore(score, width, wrap = true, fill = false, stretch = f
     const scale = (last && !stretch) || !body ? 1 : Math.max(1, (avail - sys.header) / body); // stretch: even the last system fills the width
     let offset = 0;
     const timeLeft = sys.x0 + sys.header + BAR_PAD_L;
-    const timeRight = sys.x0 + avail;
+    const timeRight = sys.x0 + avail - (timed ? BAR_PAD_R : 0);
     sys.barlines = [];
     sys.slots = [];
     for (const bar of sys.bars) {
@@ -244,7 +246,7 @@ export function layoutScore(score, width, wrap = true, fill = false, stretch = f
       sys.barlines.push(timed ? timeRight : sys.x0 + sys.header + offset * scale);
     }
     sys.x1 = timed && sys.bars.length ? timeRight : sys.x0 + sys.header + offset * scale;
-    if (last && !laid.length) sys.x1 = sys.x0 + width - 2 * MARGIN_X;
+    if (last && !laid.length) sys.x1 = timed ? timeRight : sys.x0 + width - 2 * MARGIN_X;
     // a fixed board: the last staff runs to the same end point whatever the score length, so staves line up
     if (fill && last) sys.x1 = Math.max(sys.x1, width - MARGIN_X);
     maxX = Math.max(maxX, sys.x1 + MARGIN_X);

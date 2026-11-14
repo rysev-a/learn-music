@@ -126,7 +126,7 @@ kbd {
 .note .fill { fill: currentColor; }
 .note .acc { fill: currentColor; }
 .note .ledger { stroke: currentColor; }
-.note .hit { fill: transparent; cursor: pointer; }
+.note .hit, .note .hitpad { fill: transparent; cursor: pointer; }
 .note.selected .hit, .note.playing .hit { fill: color-mix(in srgb, var(--accent) 16%, transparent); }
 .note.selected, .note.playing { color: var(--accent); }
 .note.ok { color: var(--ok); }
@@ -285,7 +285,7 @@ aside[hidden] { display: none; }
 
 /* a voice picked by hand: the other voice is dimmed and not selectable */
 .note.dim { opacity: .4; }
-.note.dim .hit { cursor: default; }
+.note.dim .hit, .note.dim .hitpad { cursor: default; }
 #tool-voice[data-strict='false'] .voice-btn[aria-pressed='true'] { background: transparent; color: var(--ink); box-shadow: inset 0 0 0 2px currentColor; }
 #tool-voice[data-strict='false'] .voice-btn.v1[aria-pressed='true'] { border-color: #3b5bdb; color: #3b5bdb; }
 #tool-voice[data-strict='false'] .voice-btn.v2[aria-pressed='true'] { border-color: #e67700; color: #e67700; }
