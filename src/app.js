@@ -7,7 +7,7 @@ import { deleteBar, deleteNote, insertIndex, placeNote } from './edit.js';
 import { BAR_PAD_L, BAR_PAD_R, STEP, barAt, bottomDia, hitTest, layoutScore, renderScore } from './render.js';
 import { compare } from './checker.js';
 import { MAX_BASE, MIN_BASE, keyFromCode, keyLayout, lookupKey } from './keyboard.js';
-import { beep, playScore, warmUp } from './audio.js';
+import { SOUNDS, beep, demo, playScore, setSound, warmUp } from './audio.js';
 import { LIBRARY, loadLibrary } from './library.js';
 
 await loadLibrary(); // init.json -> LIBRARY (before any state is built)
@@ -17,7 +17,7 @@ const WHICH = ['original', 'mine'];
 const LABELS = { original: 'Original', mine: 'My notes' };
 const $ = (sel, root = document) => root.querySelector(sel);
 const clone = (x) => JSON.parse(JSON.stringify(x));
-const BUILD = '2026-11-14.9';
+const BUILD = '2026-11-14.10';
 const PIANO_W_MIN = 20; // narrowest / widest white key of the piano board (pinch changes it)
 const PIANO_W_MAX = 100;
 $('#build').textContent = `build ${BUILD}`;
@@ -41,7 +41,7 @@ function loadSaved() {
     const raw = JSON.parse(localStorage.getItem(STORE_KEY));
     const o = validateScore(raw?.original);
     const m = validateScore(raw?.mine);
-    if (o.ok && m.ok) return { original: o.score, mine: m.score, hideOriginal: !!raw.hideOriginal, lib: raw.lib, octave: raw.octave, zoom: raw.zoom, grid: raw.grid, piano: raw.piano, pianoW: raw.pianoW, pianoPos: raw.pianoPos };
+    if (o.ok && m.ok) return { original: o.score, mine: m.score, hideOriginal: !!raw.hideOriginal, lib: raw.lib, octave: raw.octave, zoom: raw.zoom, grid: raw.grid, piano: raw.piano, pianoW: raw.pianoW, pianoPos: raw.pianoPos, sound: raw.sound };
   } catch {}
   return null;
 }
@@ -67,6 +67,7 @@ const state = {
   piano: saved?.piano === true, // the piano keys along the bottom
   pianoW: Number.isFinite(saved?.pianoW) ? clamp(saved.pianoW, PIANO_W_MIN, PIANO_W_MAX) : 40, // width of a white key in px
   pianoPos: Number.isFinite(saved?.pianoPos) ? saved.pianoPos : null, // where the keys were scrolled to, in white keys from the left (null: around middle C)
+  sound: SOUNDS.some((s) => s.id === saved?.sound) ? saved.sound : 'recorded', // instrument (see SOUNDS in voices.js)
   barView: false, // full screen: one bar fills the screen, split by dotted lines to put notes on
   barIndex: 0, // which bar the one-bar view shows (zero-based)
   grid: GRIDS.some(([k]) => k === saved?.grid) ? saved.grid : '4',
@@ -80,7 +81,7 @@ const layouts = { original: null, mine: null };
 
 function persist() {
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify({ original: state.original, mine: state.mine, hideOriginal: state.hideOriginal, lib: state.lib, octave: state.octave, zoom: state.zoom, grid: state.grid, piano: state.piano, pianoW: state.pianoW, pianoPos: state.pianoPos }));
+    localStorage.setItem(STORE_KEY, JSON.stringify({ original: state.original, mine: state.mine, hideOriginal: state.hideOriginal, lib: state.lib, octave: state.octave, zoom: state.zoom, grid: state.grid, piano: state.piano, pianoW: state.pianoW, pianoPos: state.pianoPos, sound: state.sound }));
   } catch {}
 }
 
@@ -1042,6 +1043,14 @@ function bindToolbar() {
     state.eraseMode = mode;
     render();
   });
+  $('#sound-select').innerHTML = SOUNDS.map((s) => `<option value="${s.id}">${s.name}</option>`).join('');
+  $('#sound-select').value = state.sound;
+  $('#sound-select').addEventListener('change', (e) => {
+    state.sound = e.target.value;
+    setSound(state.sound);
+    persist();
+    demo(); // hear it at once
+  });
   $('#piano-toggle').addEventListener('click', () => {
     state.piano = !state.piano;
     persist();
@@ -1689,6 +1698,7 @@ new ResizeObserver(() => {
 }).observe($('#cards'));
 
 buildCards();
+setSound(state.sound);
 setTimeout(warmUp, 600);
 buildLibrary();
 buildKeyboard();
