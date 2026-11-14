@@ -501,3 +501,14 @@ html.barview .card { margin-bottom: 0; }
 html.barview #bar-prev, html.barview #bar-label, html.barview #bar-next { order: -6; }
 html.barview #grid-size { order: -5; }
 html.barview #bar-mode { order: -4; }
+
+/* the tool column in full screen scrolls up / down by touch; the last button stays reachable above the home bar */
+html.full .toolbar {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  padding-bottom: calc(24px + env(safe-area-inset-bottom));
+}
+html.full .toolbar button, html.full .toolbar select { touch-action: pan-y; }

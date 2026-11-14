@@ -6,6 +6,7 @@ import { renderScore, hitTest } from '../src/render.js';
 import { readFileSync } from 'node:fs';
 import { LIBRARY, allExercises, setLibrary } from '../src/library.js';
 import { keyLayout, lookupKey, keyFromCode } from '../src/keyboard.js';
+import { pianoSamples } from '../src/audio.js';
 import { placeNote, insertIndex, deleteNote, restsFor, deleteBar } from '../src/edit.js';
 
 assert.ok(setLibrary(JSON.parse(readFileSync(new URL('../init.json', import.meta.url), 'utf8'))), 'init.json is a valid library');
@@ -225,4 +226,15 @@ test('deleteBar removes a whole bar from both voices and closes the gap', () => 
   assert.deepEqual(s.voice2.map((n) => n.pitch), ['G3']);
   deleteBar(s, 5); // past the end: nothing happens
   assert.equal(s.notes.length, 4);
+});
+
+test('piano samples: finite, normalised, decaying, and lower notes ring longer', () => {
+  const a4 = pianoSamples(69, 8000);
+  const c2 = pianoSamples(36, 8000);
+  assert.ok(a4.every(Number.isFinite));
+  const peak = (x) => x.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
+  assert.ok(Math.abs(peak(a4) - 0.9) < 1e-3);
+  const rms = (x, from, to) => Math.sqrt(x.slice(from, to).reduce((s, v) => s + v * v, 0) / (to - from));
+  assert.ok(rms(a4, 4000, 6000) < rms(a4, 400, 2400), 'it dies away');
+  assert.ok(c2.length > a4.length, 'low notes are longer');
 });

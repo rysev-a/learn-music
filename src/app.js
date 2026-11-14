@@ -361,8 +361,7 @@ function renderCard(which) {
     const bar = state.target === which ? { length: L, size: gridBeats() } : null;
     const { svg, layout } = renderScore(slice, { width: barGeo.W, wrap: true, stretch: true, plain: true, status, selected, cursor: cur, dim, base, bar });
     staff.classList.remove('h-scroll');
-    staff.innerHTML = svg;
-    const svgEl = $('svg', staff);
+    const svgEl = putSvg(staff, svg);
     svgEl.style.width = `${Math.round(layout.width * barGeo.s)}px`;
     svgEl.style.height = `${Math.round(layout.height * barGeo.s)}px`;
     layout.from = from;
@@ -380,8 +379,7 @@ function renderCard(which) {
   const { svg, layout } = renderScore(score, { width, wrap: !horizontal, status, selected, cursor, dim, fill: state.full });
   const scrollLeft = staff.scrollLeft;
   staff.classList.toggle('h-scroll', horizontal && !state.full);
-  staff.innerHTML = svg;
-  const svgEl = $('svg', staff);
+  const svgEl = putSvg(staff, svg);
   if (state.full) {
     svgEl.style.width = `${Math.round(layout.width)}px`;
     svgEl.style.height = `${Math.round(layout.height)}px`;
@@ -441,6 +439,27 @@ function stepBar(d) {
 }
 
 const nearestGrid = (which, x) => layouts[which].grid.reduce((b, g) => (Math.abs(g.x - x) < Math.abs(b.x - x) ? g : b));
+
+/**
+ * Put a rendered staff into its card. An unchanged drawing (the original while you write) is left alone, and a changed
+ * one is swapped inside the same <svg> element: no new element, so nothing flashes when a note is added.
+ */
+const drawn = new WeakMap();
+function putSvg(staff, svg) {
+  const old = $('svg', staff);
+  if (old && drawn.get(staff) === svg) return old;
+  drawn.set(staff, svg);
+  const next = document.createElement('template');
+  next.innerHTML = svg;
+  const fresh = next.content.firstElementChild;
+  if (!old) {
+    staff.replaceChildren(fresh);
+    return fresh;
+  }
+  old.replaceChildren(...fresh.childNodes);
+  for (const a of ['viewBox', 'aria-label']) old.setAttribute(a, fresh.getAttribute(a));
+  return old;
+}
 
 // ---------- DOM: staff interaction ----------
 
