@@ -19,6 +19,7 @@ const $ = (sel, root = document) => root.querySelector(sel);
 const clone = (x) => JSON.parse(JSON.stringify(x));
 const ZOOM_MIN = 0.3;
 const ZOOM_MAX = 4;
+const BOARD_ROOM = 360; // empty staff after the last note on the full-screen board
 const landscapeMQ = matchMedia('(orientation: landscape) and (max-height: 600px)'); // a phone held sideways
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
@@ -348,15 +349,23 @@ function renderCard(which) {
   let width = Math.max(220, Math.round((staff.clientWidth || 860) / state.zoom));
   // sideways: both staves are as long as the longer one, so they scroll together without clamping
   if (horizontal) for (const w of WHICH) if (!isHidden(w)) width = Math.max(width, Math.ceil(layoutScore(state[w], 0, false).width));
-  const { svg, layout } = renderScore(score, { width, wrap: !horizontal, status, selected, cursor, dim });
+  // full screen: a board with fixed coordinates. Its size depends on the music only (never on the window or the
+  // zoom), so the start and the end of the staves stay where they are while you pan and scale.
+  if (state.full) width = Math.max(...WHICH.map((w) => Math.ceil(layoutScore(state[w], 0, false).width))) + BOARD_ROOM;
+  const { svg, layout } = renderScore(score, { width, wrap: !horizontal, status, selected, cursor, dim, fill: state.full });
   const scrollLeft = staff.scrollLeft;
-  staff.classList.toggle('h-scroll', horizontal);
+  staff.classList.toggle('h-scroll', horizontal && !state.full);
   staff.innerHTML = svg;
   const svgEl = $('svg', staff);
-  // sideways: one endless staff at its natural size times the zoom; otherwise it fills the card
-  if (horizontal) svgEl.style.width = `${Math.round(layout.width * state.zoom)}px`;
+  if (state.full) {
+    svgEl.style.width = `${Math.round(layout.width)}px`;
+    svgEl.style.height = `${Math.round(layout.height)}px`;
+  } else if (horizontal) svgEl.style.width = `${Math.round(layout.width * state.zoom)}px`; // one endless staff at its natural size times the zoom
   staff.scrollLeft = scrollLeft;
-  if (horizontal && state.target === which) keepInView(staff);
+  if (state.target === which) {
+    if (state.full) keepInBoard(staff);
+    else if (horizontal) keepInView(staff);
+  }
   layouts[which] = layout;
   lint.innerHTML = barIssues(score).map((i) => `<li>${i.message}</li>`).join('');
 }
@@ -880,8 +889,17 @@ document.addEventListener('keydown', (e) => {
 const isHorizontal = () => state.full || landscapeMQ.matches;
 
 function setZoom(z) {
+  const old = state.zoom;
   state.zoom = Math.round(clamp(z, ZOOM_MIN, ZOOM_MAX) * 100) / 100;
   persist();
+  if (state.full) {
+    // scale about the middle of the visible board
+    const c = boardCenter();
+    board.x = c.x - ((c.x - board.x) * state.zoom) / old;
+    board.y = c.y - ((c.y - board.y) * state.zoom) / old;
+    applyBoard();
+    return;
+  }
   render();
 }
 const stepZoom = (dir) => setZoom(state.zoom * (dir > 0 ? 1.25 : 0.8));
@@ -960,12 +978,13 @@ function bindPinch(staff) {
   let drag = null;
   let coast = 0;
   staff.addEventListener('pointerdown', (e) => {
-    if (e.pointerType !== 'touch') return;
+    if (e.pointerType !== 'touch' || state.full) return;
     cancelAnimationFrame(coast);
     touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
     drag = touches.size === 1 ? { id: e.pointerId, moved: 0, vx: 0, t: e.timeStamp } : null;
   });
   staff.addEventListener('pointermove', (e) => {
+    if (state.full) return;
     const t = touches.get(e.pointerId);
     if (!t) return;
     const dx = e.clientX - t.x;
@@ -986,7 +1005,7 @@ function bindPinch(staff) {
     }
   });
   const up = (e) => {
-    if (!touches.delete(e.pointerId)) return;
+    if (state.full || !touches.delete(e.pointerId)) return;
     if (pinch && touches.size < 2) {
       endPinch();
       gestureEnd = Date.now();
@@ -1011,13 +1030,169 @@ function bindPinch(staff) {
   staff.addEventListener('scroll', () => syncScroll(staff), { passive: true });
 }
 
+
+// ---------- full screen: an endless board ----------
+// The staves sit on one board (#cards) that is moved and scaled with a CSS transform: drag with one finger in any
+// direction, pinch with two (the point between the fingers stays put), wheel / ctrl+wheel on a desktop.
+const board = { x: 8, y: 20 };
+const layoutEl = $('.layout');
+const toolbarEl = $('.toolbar');
+const boardView = () => {
+  const w = toolbarEl.getBoundingClientRect().left || layoutEl.clientWidth; // the tool column is not part of the view
+  return { w, h: layoutEl.clientHeight };
+};
+const boardCenter = () => {
+  const v = boardView();
+  return { x: v.w / 2, y: v.h / 2 };
+};
+
+/** Keep some of the board on screen, so it can be dragged far but never lost. */
+function clampBoard() {
+  const v = boardView();
+  const cards$ = $('#cards');
+  const w = cards$.offsetWidth * state.zoom;
+  const h = cards$.offsetHeight * state.zoom;
+  const keep = 80;
+  board.x = clamp(board.x, keep - w, v.w - keep);
+  board.y = clamp(board.y, keep - h, v.h - keep);
+}
+
+function applyBoard() {
+  clampBoard();
+  $('#cards').style.transform = `translate(${board.x.toFixed(1)}px, ${board.y.toFixed(1)}px) scale(${state.zoom})`;
+  $('#zoom-reset').textContent = `${Math.round(state.zoom * 100)}%`;
+}
+
+/** Scale to z keeping the board point under (cx, cy) in place. */
+function zoomAt(z, cx, cy) {
+  z = clamp(z, ZOOM_MIN, ZOOM_MAX);
+  board.x = cx - ((cx - board.x) * z) / state.zoom;
+  board.y = cy - ((cy - board.y) * z) / state.zoom;
+  state.zoom = z;
+  applyBoard();
+}
+
+/** Scroll the board so the cursor / selected note is visible. */
+function keepInBoard(staff) {
+  const el = $('.note.selected', staff) ?? $('.cursor', staff);
+  if (!el) return;
+  const r = el.getBoundingClientRect();
+  const v = boardView();
+  const m = 40;
+  let moved = false;
+  if (r.right > v.w - m) (board.x -= r.right - v.w + 2 * m), (moved = true);
+  else if (r.left < m) (board.x += m - r.left + m), (moved = true);
+  if (r.bottom > v.h - m) (board.y -= r.bottom - v.h + 2 * m), (moved = true);
+  else if (r.top < m) (board.y += m - r.top + m), (moved = true);
+  if (moved) applyBoard();
+}
+
+function bindBoard() {
+  const pts = new Map();
+  let drag = null;
+  let pinchStart = null;
+  let coast = 0;
+  const mid = () => {
+    const [a, b] = [...pts.values()];
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, d: Math.hypot(a.x - b.x, a.y - b.y) };
+  };
+  layoutEl.addEventListener('pointerdown', (e) => {
+    if (!state.full || e.pointerType !== 'touch' || e.target.closest('.toolbar')) return;
+    cancelAnimationFrame(coast);
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    drag = pts.size === 1 ? { id: e.pointerId, moved: 0, vx: 0, vy: 0, t: e.timeStamp } : null;
+    pinchStart = pts.size === 2 ? { ...mid(), z: state.zoom } : null;
+  });
+  layoutEl.addEventListener('pointermove', (e) => {
+    const p = pts.get(e.pointerId);
+    if (!state.full || !p) return;
+    const dx = e.clientX - p.x;
+    const dy = e.clientY - p.y;
+    if (pts.size === 2) {
+      const before = mid();
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const now = mid();
+      board.x += now.x - before.x; // two fingers also drag the board
+      board.y += now.y - before.y;
+      if (pinchStart?.d) zoomAt(pinchStart.z * (now.d / pinchStart.d), now.x, now.y);
+      else applyBoard();
+      gestureEnd = Date.now();
+      drag = null;
+      return;
+    }
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (drag?.id !== e.pointerId) return;
+    drag.moved += Math.abs(dx) + Math.abs(dy);
+    if (drag.moved < 8) return; // still a tap
+    board.x += dx;
+    board.y += dy;
+    applyBoard();
+    const dt = Math.max(1, e.timeStamp - drag.t);
+    drag.vx = 0.8 * drag.vx + 0.2 * (dx / dt);
+    drag.vy = 0.8 * drag.vy + 0.2 * (dy / dt);
+    drag.t = e.timeStamp;
+  });
+  const up = (e) => {
+    if (!pts.delete(e.pointerId)) return;
+    if (pinchStart) {
+      pinchStart = null;
+      gestureEnd = Date.now();
+      persist();
+      // the finger left over carries on as a pan, not as a tap
+      const rest = [...pts.entries()][0];
+      drag = rest ? { id: rest[0], moved: 99, vx: 0, vy: 0, t: e.timeStamp } : null;
+      return;
+    }
+    if (drag?.id === e.pointerId) {
+      if (drag.moved >= 8) {
+        gestureEnd = Date.now();
+        let { vx, vy } = e.timeStamp - drag.t < 80 ? drag : { vx: 0, vy: 0 }; // px/ms, still moving at release
+        const step = () => {
+          if (Math.hypot(vx, vy) < 0.02) return;
+          board.x += vx * 16;
+          board.y += vy * 16;
+          vx *= 0.95;
+          vy *= 0.95;
+          applyBoard();
+          coast = requestAnimationFrame(step);
+        };
+        step();
+      }
+      drag = null;
+    }
+  };
+  layoutEl.addEventListener('pointerup', up);
+  layoutEl.addEventListener('pointercancel', up);
+  layoutEl.addEventListener(
+    'wheel',
+    (e) => {
+      if (!state.full) return;
+      e.preventDefault();
+      if (e.ctrlKey) zoomAt(state.zoom * Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY);
+      else {
+        board.x -= e.deltaX;
+        board.y -= e.deltaY;
+        applyBoard();
+      }
+    },
+    { passive: false }
+  );
+}
+bindBoard();
+
 /** Full screen: only the staves (an endless canvas to drag and scale) and the tools in a column on the right. */
 function setFull(on) {
   state.full = on;
   document.documentElement.classList.toggle('full', on);
+  // the tool column is fixed to the window: it cannot live inside the transformed board
+  if (on) document.body.append(toolbarEl);
+  else $('header', cards.mine.root).after(toolbarEl);
+  $('#cards').style.transform = '';
+  if (on) Object.assign(board, { x: 8, y: 20 });
   if (on) document.documentElement.requestFullscreen?.().catch(() => {});
   else if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   render();
+  if (on) applyBoard();
 }
 $('#fullscreen').addEventListener('click', () => setFull(true));
 $('#full-exit').addEventListener('click', () => setFull(false));
