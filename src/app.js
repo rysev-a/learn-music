@@ -17,7 +17,7 @@ const WHICH = ['original', 'mine'];
 const LABELS = { original: 'Original', mine: 'My notes' };
 const $ = (sel, root = document) => root.querySelector(sel);
 const clone = (x) => JSON.parse(JSON.stringify(x));
-const BUILD = '2026-11-14.8';
+const BUILD = '2026-11-14.9';
 const PIANO_W_MIN = 20; // narrowest / widest white key of the piano board (pinch changes it)
 const PIANO_W_MAX = 100;
 $('#build').textContent = `build ${BUILD}`;
@@ -41,7 +41,7 @@ function loadSaved() {
     const raw = JSON.parse(localStorage.getItem(STORE_KEY));
     const o = validateScore(raw?.original);
     const m = validateScore(raw?.mine);
-    if (o.ok && m.ok) return { original: o.score, mine: m.score, hideOriginal: !!raw.hideOriginal, lib: raw.lib, octave: raw.octave, zoom: raw.zoom, grid: raw.grid, piano: raw.piano, pianoW: raw.pianoW };
+    if (o.ok && m.ok) return { original: o.score, mine: m.score, hideOriginal: !!raw.hideOriginal, lib: raw.lib, octave: raw.octave, zoom: raw.zoom, grid: raw.grid, piano: raw.piano, pianoW: raw.pianoW, pianoPos: raw.pianoPos };
   } catch {}
   return null;
 }
@@ -66,6 +66,7 @@ const state = {
   pinned: false, // full screen: position and scale of the board are fixed
   piano: saved?.piano === true, // the piano keys along the bottom
   pianoW: Number.isFinite(saved?.pianoW) ? clamp(saved.pianoW, PIANO_W_MIN, PIANO_W_MAX) : 40, // width of a white key in px
+  pianoPos: Number.isFinite(saved?.pianoPos) ? saved.pianoPos : null, // where the keys were scrolled to, in white keys from the left (null: around middle C)
   barView: false, // full screen: one bar fills the screen, split by dotted lines to put notes on
   barIndex: 0, // which bar the one-bar view shows (zero-based)
   grid: GRIDS.some(([k]) => k === saved?.grid) ? saved.grid : '4',
@@ -79,7 +80,7 @@ const layouts = { original: null, mine: null };
 
 function persist() {
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify({ original: state.original, mine: state.mine, hideOriginal: state.hideOriginal, lib: state.lib, octave: state.octave, zoom: state.zoom, grid: state.grid, piano: state.piano, pianoW: state.pianoW }));
+    localStorage.setItem(STORE_KEY, JSON.stringify({ original: state.original, mine: state.mine, hideOriginal: state.hideOriginal, lib: state.lib, octave: state.octave, zoom: state.zoom, grid: state.grid, piano: state.piano, pianoW: state.pianoW, pianoPos: state.pianoPos }));
   } catch {}
 }
 
@@ -599,9 +600,9 @@ function applyPianoWidth() {
   pianoEl.style.setProperty('--kw', `${state.pianoW}px`);
 }
 
-/** Show the middle of the keyboard (around middle C) first. */
-function centerPiano() {
-  pianoEl.scrollLeft = whiteIndexOf[60] * state.pianoW - pianoEl.clientWidth / 2;
+/** Show the keys where they were last left; the first time, the middle of the keyboard (around middle C). */
+function placePiano() {
+  pianoEl.scrollLeft = state.pianoPos === null ? whiteIndexOf[60] * state.pianoW - pianoEl.clientWidth / 2 : state.pianoPos * state.pianoW;
 }
 
 /** A tapped key becomes a note: white keys as they are, black keys as sharps (flats in a flat key). */
@@ -699,6 +700,19 @@ function bindPiano() {
   };
   pianoEl.addEventListener('pointerup', up);
   pianoEl.addEventListener('pointercancel', up);
+  let remember = 0;
+  pianoEl.addEventListener(
+    'scroll',
+    () => {
+      clearTimeout(remember);
+      remember = setTimeout(() => {
+        if (pianoEl.hidden || !pianoEl.clientWidth) return;
+        state.pianoPos = pianoEl.scrollLeft / state.pianoW;
+        persist();
+      }, 250);
+    },
+    { passive: true }
+  );
 
   pianoEl.addEventListener(
     'wheel',
@@ -968,12 +982,18 @@ function renderResult() {
 
 // ---------- render ----------
 
+let pianoPlaced = false;
 let barGeo = null; // size of the one-bar view: { W (layout width), s (scale) }
 function render() {
   const bar = state.full && state.barView;
   document.documentElement.classList.toggle('barview', bar);
   document.documentElement.classList.toggle('piano', state.piano);
   $('#piano').hidden = !state.piano;
+  if (!state.piano) pianoPlaced = false;
+  else if (!pianoPlaced && $('#piano').clientWidth > 0) {
+    placePiano(); // just appeared (opened, or the page was opened with it): show the keys where they were
+    pianoPlaced = true;
+  }
   if (bar) {
     state.barIndex = clamp(state.barIndex, 0, barCount() - 1);
     barGeo = barGeometry();
@@ -1027,7 +1047,6 @@ function bindToolbar() {
     persist();
     render();
     applyBoard();
-    if (state.piano) centerPiano();
   });
   $('#bar-mode').addEventListener('click', () => {
     state.barView = !state.barView;
