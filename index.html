@@ -66,6 +66,17 @@
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2l6 7-6 6 6 6c-4-1-5 1-3 3"/></svg>
           </button>
         </div>
+        <div class="group" id="tool-erase">
+          <button class="icon" id="erase" aria-pressed="false" title="Erase: tap a note or a bar to delete it" aria-label="Erase">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 21h12"/><path d="M5.5 13.5L13 6a2 2 0 0 1 2.8 0l3.2 3.2a2 2 0 0 1 0 2.8L11.5 19.5H8.3a2 2 0 0 1-1.4-.6l-1.4-1.4a2 2 0 0 1 0-2.8z"/><path d="M9 10l5 5"/></svg>
+          </button>
+          <button class="icon erase-opt" data-erase="note" aria-pressed="false" title="Erase a note" aria-label="Erase a note">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><ellipse cx="8" cy="17" rx="4.6" ry="3.2" transform="rotate(-20 8 17)" fill="currentColor"/><path d="M12.4 15.6V4"/><path d="M15 5l5 5M20 5l-5 5"/></svg>
+          </button>
+          <button class="icon erase-opt" data-erase="bar" aria-pressed="false" title="Erase a whole bar" aria-label="Erase a bar">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 11h18M3 15h18M3 19h18"/><path d="M6 8v13M18 8v13"/><path d="M10 2l4 4M14 2l-4 4"/></svg>
+          </button>
+        </div>
         <div class="group right">
           <button class="icon" id="undo" title="Undo (Ctrl+Z)" aria-label="Undo">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
@@ -84,7 +95,19 @@
           <button class="icon" id="full-play" title="Play my notes" aria-label="Play my notes">▶</button>
           <button class="icon" id="full-zoom-out" title="Smaller notes" aria-label="Smaller notes">&minus;</button>
           <button class="icon" id="full-zoom-in" title="Larger notes" aria-label="Larger notes">+</button>
+          <button class="icon" id="bar-mode" aria-pressed="false" title="One bar on the screen, split by dotted lines" aria-label="One bar view">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M9 6v12M15 6v12" stroke-dasharray="2 2.6"/></svg>
+          </button>
+          <button class="icon" id="board-pin" aria-pressed="false" title="Fix the position and the scale of the board" aria-label="Fix position and zoom">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16v6"/><path d="M8.5 2.5h7l-1 6.5 3 3.5v2.5h-11v-2.5l3-3.5z"/></svg>
+          </button>
           <button class="icon" id="full-exit" title="Leave full screen" aria-label="Leave full screen">✕</button>
+        </div>
+        <div class="group full-only" id="bar-tools">
+          <button class="icon bar-opt" id="bar-prev" title="Previous bar" aria-label="Previous bar">◀</button>
+          <span class="bar-opt" id="bar-label" aria-live="polite"></span>
+          <button class="icon bar-opt" id="bar-next" title="Next bar" aria-label="Next bar">▶</button>
+          <select class="bar-opt" id="grid-size" title="Split size: where the dotted lines are" aria-label="Split size"></select>
         </div>
       </div>
 

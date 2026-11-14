@@ -1,10 +1,10 @@
 import {
   DURATIONS, KEYS, LETTERS, REST, TIMES,
-  barIssues, beatsOf, diatonic, emptyScore, endTime, timeline, formatPitch, fromDiatonic, hasSecondVoice, keyAlterations,
+  barIssues, barLength, beatsOf, diatonic, emptyScore, endTime, timeline, formatPitch, fromDiatonic, hasSecondVoice, keyAlterations,
   parsePitch, startOf, stringifyScore, validateScore, voiceNotes,
 } from './score.js';
-import { deleteNote, insertIndex, placeNote } from './edit.js';
-import { bottomDia, hitTest, layoutScore, renderScore } from './render.js';
+import { deleteBar, deleteNote, insertIndex, placeNote } from './edit.js';
+import { STEP, barAt, bottomDia, hitTest, layoutScore, renderScore } from './render.js';
 import { compare } from './checker.js';
 import { MAX_BASE, MIN_BASE, keyFromCode, keyLayout, lookupKey } from './keyboard.js';
 import { beep, playScore } from './audio.js';
@@ -19,6 +19,8 @@ const $ = (sel, root = document) => root.querySelector(sel);
 const clone = (x) => JSON.parse(JSON.stringify(x));
 const ZOOM_MIN = 0.3;
 const ZOOM_MAX = 4;
+// split sizes of the one-bar view: a fraction of a whole note (key = its denominator)
+const GRIDS = [['1', '1'], ['2', '1/2'], ['4', '1/4'], ['8', '1/8'], ['16', '1/16'], ['3', '1/3'], ['6', '1/6']];
 const BOARD_ROOM = 360; // empty staff after the last note on the full-screen board
 const landscapeMQ = matchMedia('(orientation: landscape) and (max-height: 600px)'); // a phone held sideways
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -35,7 +37,7 @@ function loadSaved() {
     const raw = JSON.parse(localStorage.getItem(STORE_KEY));
     const o = validateScore(raw?.original);
     const m = validateScore(raw?.mine);
-    if (o.ok && m.ok) return { original: o.score, mine: m.score, hideOriginal: !!raw.hideOriginal, lib: raw.lib, octave: raw.octave, zoom: raw.zoom };
+    if (o.ok && m.ok) return { original: o.score, mine: m.score, hideOriginal: !!raw.hideOriginal, lib: raw.lib, octave: raw.octave, zoom: raw.zoom, grid: raw.grid };
   } catch {}
   return null;
 }
@@ -55,6 +57,12 @@ const state = {
   acc: 'auto', // auto = follow key signature
   accLock: false, // true = the accidental stays on for every following note
   rest: false,
+  erase: false, // eraser on: tapping deletes
+  eraseMode: 'note', // 'note' or 'bar'
+  pinned: false, // full screen: position and scale of the board are fixed
+  barView: false, // full screen: one bar fills the screen, split by dotted lines to put notes on
+  barIndex: 0, // which bar the one-bar view shows (zero-based)
+  grid: GRIDS.some(([k]) => k === saved?.grid) ? saved.grid : '4',
   selected: null, // { which, voice, index }
   voiceChoice: null, // 1 or 2 once a voice is picked by hand: only that voice is selected, navigated and edited; null = automatic
   cursor: null, // where the next note goes: { voice, t } in beats; null = after the last note of voice 1
@@ -65,7 +73,7 @@ const layouts = { original: null, mine: null };
 
 function persist() {
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify({ original: state.original, mine: state.mine, hideOriginal: state.hideOriginal, lib: state.lib, octave: state.octave, zoom: state.zoom }));
+    localStorage.setItem(STORE_KEY, JSON.stringify({ original: state.original, mine: state.mine, hideOriginal: state.hideOriginal, lib: state.lib, octave: state.octave, zoom: state.zoom, grid: state.grid }));
   } catch {}
 }
 
@@ -345,6 +353,22 @@ function renderCard(which) {
   const selected = state.selected?.which === which ? state.selected : null;
   const cursor = state.target === which ? { voice: activeVoice(), t: cursorTime(which) } : null;
   const dim = state.target === which && strict() && score.voice2.length ? 3 - state.voiceChoice : null;
+  if (state.full && state.barView) {
+    // one bar, stretched over the whole screen at a fixed size; notes keep their real index (base)
+    const { slice, base, from } = sliceBar(which, state.barIndex);
+    const L = barLength(score);
+    const cur = cursor && cursor.t - from >= -EPS && cursor.t - from <= L + EPS ? { voice: cursor.voice, t: cursor.t - from } : null;
+    const bar = state.target === which ? { length: L, size: gridBeats() } : null;
+    const { svg, layout } = renderScore(slice, { width: barGeo.W, wrap: true, stretch: true, plain: true, status, selected, cursor: cur, dim, base, bar });
+    staff.classList.remove('h-scroll');
+    const svgEl = putSvg(staff, svg);
+    svgEl.style.width = `${Math.round(layout.width * barGeo.s)}px`;
+    svgEl.style.height = `${Math.round(layout.height * barGeo.s)}px`;
+    layout.from = from;
+    layouts[which] = layout;
+    lint.innerHTML = '';
+    return;
+  }
   const horizontal = isHorizontal();
   let width = Math.max(220, Math.round((staff.clientWidth || 860) / state.zoom));
   // sideways: both staves are as long as the longer one, so they scroll together without clamping
@@ -355,8 +379,7 @@ function renderCard(which) {
   const { svg, layout } = renderScore(score, { width, wrap: !horizontal, status, selected, cursor, dim, fill: state.full });
   const scrollLeft = staff.scrollLeft;
   staff.classList.toggle('h-scroll', horizontal && !state.full);
-  staff.innerHTML = svg;
-  const svgEl = $('svg', staff);
+  const svgEl = putSvg(staff, svg);
   if (state.full) {
     svgEl.style.width = `${Math.round(layout.width)}px`;
     svgEl.style.height = `${Math.round(layout.height)}px`;
@@ -368,6 +391,74 @@ function renderCard(which) {
   }
   layouts[which] = layout;
   lint.innerHTML = barIssues(score).map((i) => `<li>${i.message}</li>`).join('');
+}
+
+// ---------- one-bar view ----------
+
+const gridBeats = () => 4 / Number(state.grid);
+
+/** Number of bars to page through: those with music, plus one empty bar to carry on in. */
+function barCount() {
+  return Math.max(...WHICH.map((w) => Math.max(1, Math.ceil(Math.max(endTime(state[w].notes), endTime(state[w].voice2)) / barLength(state[w]) - EPS)))) + 1;
+}
+
+/** One bar of a score as a score of its own, and the index of its first note in each voice. */
+function sliceBar(which, k) {
+  const score = state[which];
+  const L = barLength(score);
+  const from = k * L;
+  const slice = { ...score, notes: [], voice2: [] };
+  const base = { 1: 0, 2: 0 };
+  for (const [key, v] of [['notes', 1], ['voice2', 2]]) {
+    const notes = voiceNotes(score, v);
+    const times = timeline(notes);
+    const idx = notes.map((_, i) => i).filter((i) => times[i].start >= from - EPS && times[i].start < from + L - EPS);
+    base[v] = idx[0] ?? 0;
+    slice[key] = idx.map((i) => notes[i]);
+  }
+  return { slice, base, from };
+}
+
+/** Width of the bar in layout units and the scale at which it fills the screen (all shown staves fit). */
+function barGeometry() {
+  const v = boardView();
+  const availW = v.w - 6;
+  const shown = WHICH.filter((w) => !isHidden(w));
+  const availH = (v.h - 4) / Math.max(1, shown.length) - 22; // minus the label above each staff
+  const heightAt = (W) => Math.max(...shown.map((w) => layoutScore(sliceBar(w, state.barIndex).slice, W, true, false, true).height));
+  // the bar must fit whole: as wide as the widest of the shown bars needs (at least ~230 units)
+  const natural = Math.max(230, ...shown.map((w) => Math.ceil(layoutScore(sliceBar(w, state.barIndex).slice, 0, false).width)));
+  let sc = Math.min(2.4, availW / natural);
+  sc = Math.min(sc, availH / heightAt(availW / sc));
+  return { W: availW / sc, s: sc };
+}
+
+function stepBar(d) {
+  state.barIndex = clamp(state.barIndex + d, 0, barCount() - 1);
+  render();
+}
+
+const nearestGrid = (which, x) => layouts[which].grid.reduce((b, g) => (Math.abs(g.x - x) < Math.abs(b.x - x) ? g : b));
+
+/**
+ * Put a rendered staff into its card. An unchanged drawing (the original while you write) is left alone, and a changed
+ * one is swapped inside the same <svg> element: no new element, so nothing flashes when a note is added.
+ */
+const drawn = new WeakMap();
+function putSvg(staff, svg) {
+  const old = $('svg', staff);
+  if (old && drawn.get(staff) === svg) return old;
+  drawn.set(staff, svg);
+  const next = document.createElement('template');
+  next.innerHTML = svg;
+  const fresh = next.content.firstElementChild;
+  if (!old) {
+    staff.replaceChildren(fresh);
+    return fresh;
+  }
+  old.replaceChildren(...fresh.childNodes);
+  for (const a of ['viewBox', 'aria-label']) old.setAttribute(a, fresh.getAttribute(a));
+  return old;
 }
 
 // ---------- DOM: staff interaction ----------
@@ -382,7 +473,10 @@ function svgPoint(svg, e) {
 function onStaffClick(which, e) {
   if (state.target !== which || !layouts[which] || Date.now() - gestureEnd < 350) return;
   const noteEl = e.target.closest('[data-i]');
-  if (noteEl) {
+  if (state.erase) return eraseAt(which, e, noteEl);
+  // in the one-bar view a tap on a rest puts a note there (like on empty staff); a tap on a note selects it
+  const onRest = state.barView && noteEl && notesOf(which, Number(noteEl.dataset.v))[Number(noteEl.dataset.i)]?.pitch === REST;
+  if (noteEl && !onRest) {
     const v = Number(noteEl.dataset.v);
     const i = Number(noteEl.dataset.i);
     // a voice picked by hand: notes of the other voice are not selected, a click just moves the cursor there
@@ -396,29 +490,63 @@ function onStaffClick(which, e) {
   const note = { pitch: state.rest ? REST : pitchFromStep(score, hit.step), dur: state.dur, ...(state.dot && { dot: true }) };
   const voice = activeVoice();
   const notes = notesOf(which, voice);
+  // one-bar view: the nearest dotted line decides the time, and the note replaces what sounds there (any voice)
+  const exact = state.barView;
+  const t = exact ? layouts[which].from + nearestGrid(which, pt.x).t : hit.t;
   commit(() => {
     let index;
-    if (voice === 1) {
-      index = insertIndex(notes, hit.t); // first voice: later notes move right
+    if (voice === 1 && !exact) {
+      index = insertIndex(notes, t); // first voice: later notes move right
       notes.splice(index, 0, note);
     } else {
-      index = placeNote(notes, hit.t, note); // second voice: replaces what sounds there
+      index = placeNote(notes, t, note); // second voice: replaces what sounds there
     }
-    afterEnter(which, voice, index, voice === 1);
+    afterEnter(which, voice, index, voice === 1 && !exact);
+    if (exact) {
+      // carry on in the bar where the note starts, or in the next one once it is full
+      const L = barLength(score);
+      let k = Math.floor(t / L + EPS);
+      if (t + beatsOf(note) >= (k + 1) * L - EPS) k++;
+      state.barIndex = k;
+    }
   });
   beep(note.pitch);
+}
+
+function eraseAt(which, e, noteEl) {
+  if (state.eraseMode === 'note') {
+    if (!noteEl) return;
+    const v = Number(noteEl.dataset.v);
+    const i = Number(noteEl.dataset.i);
+    commit(() => {
+      deleteNote(notesOf(which, v), i, v === 2);
+      state.selected = null;
+      state.cursor = null;
+    });
+    return;
+  }
+  const pt = state.barView ? null : svgPoint($('svg', cards[which].staff), e);
+  const bar = state.barView ? state.barIndex : barAt(layouts[which], pt.x, pt.y);
+  if (bar < 0) return;
+  commit(() => {
+    deleteBar(state[which], bar);
+    state.selected = null;
+    state.cursor = null;
+    state.voiceChoice = null;
+  });
 }
 
 function onStaffMove(which, e) {
   const staff = cards[which].staff;
   $('.ghost', staff)?.remove();
-  if (state.target !== which || !layouts[which] || e.target.closest('[data-i]')) return;
+  if (state.erase || state.target !== which || !layouts[which] || e.target.closest('[data-i]')) return;
   const svg = $('svg', staff);
   const pt = svgPoint(svg, e);
   const hit = hitTest(layouts[which], pt.x, pt.y);
   const label = state.rest ? 'rest' : pitchFromStep(state[which], hit.step);
-  const head = state.rest ? '' : `<ellipse cx="${pt.x}" cy="${hit.y}" rx="6.4" ry="4.6" transform="rotate(-20 ${pt.x} ${hit.y})"/>`;
-  svg.insertAdjacentHTML('beforeend', `<g class="ghost">${head}<text x="${pt.x + 12}" y="${hit.y - 8}">${label}</text></g>`);
+  const gx = state.barView ? nearestGrid(which, pt.x).x : pt.x;
+  const head = state.rest ? '' : `<ellipse cx="${gx}" cy="${hit.y}" rx="6.4" ry="4.6" transform="rotate(-20 ${gx} ${hit.y})"/>`;
+  svg.insertAdjacentHTML('beforeend', `<g class="ghost">${head}<text x="${gx + 12}" y="${hit.y - 8}">${label}</text></g>`);
 }
 
 // ---------- note keyboard ----------
@@ -529,6 +657,20 @@ function syncToolbar() {
   $('#tool-rest').setAttribute('aria-pressed', String(state.rest));
   $('#tool-dot').setAttribute('aria-pressed', String(state.dot));
   $('#tool-lock').setAttribute('aria-pressed', String(state.accLock));
+  $('#erase').setAttribute('aria-pressed', String(state.erase));
+  $('#tool-erase').classList.toggle('open', state.erase);
+  for (const b of document.querySelectorAll('[data-erase]')) b.setAttribute('aria-pressed', String(state.erase && b.dataset.erase === state.eraseMode));
+  $('#board-pin').setAttribute('aria-pressed', String(state.pinned));
+  $('#board-pin').disabled = state.barView;
+  $('#full-zoom-in').disabled = state.pinned || state.barView || state.zoom >= ZOOM_MAX;
+  $('#full-zoom-out').disabled = state.pinned || state.barView || state.zoom <= ZOOM_MIN;
+  $('#bar-mode').setAttribute('aria-pressed', String(state.barView));
+  $('#grid-size').value = state.grid;
+  if (state.barView) {
+    $('#bar-label').textContent = `${state.barIndex + 1}/${barCount()}`;
+    $('#bar-prev').disabled = state.barIndex <= 0;
+    $('#bar-next').disabled = state.barIndex >= barCount() - 1;
+  }
   $('#tool-voice').dataset.strict = String(strict());
   for (const b of document.querySelectorAll('[data-voice]')) b.setAttribute('aria-pressed', String(Number(b.dataset.voice) === activeVoice()));
   $('#undo').disabled = history.length === 0;
@@ -648,7 +790,14 @@ function renderResult() {
 
 // ---------- render ----------
 
+let barGeo = null; // size of the one-bar view: { W (layout width), s (scale) }
 function render() {
+  const bar = state.full && state.barView;
+  document.documentElement.classList.toggle('barview', bar);
+  if (bar) {
+    state.barIndex = clamp(state.barIndex, 0, barCount() - 1);
+    barGeo = barGeometry();
+  }
   const sel = state.selected;
   if (sel && !notesOf(sel.which, sel.voice)[sel.index]) state.selected = null;
   for (const which of WHICH) renderCard(which);
@@ -679,6 +828,36 @@ function bindToolbar() {
   $('#tool-dot').addEventListener('click', () => setDot(!state.dot));
   $('#tool-rest').addEventListener('click', () => {
     state.rest = !state.rest;
+    render();
+  });
+  // eraser: one tap opens it (the choice of note / bar slides out), the next tap closes it
+  $('#erase').addEventListener('click', () => {
+    state.erase = !state.erase;
+    render();
+  });
+  $('#tool-erase').addEventListener('click', (e) => {
+    const mode = e.target.closest('[data-erase]')?.dataset.erase;
+    if (!mode) return;
+    state.erase = true;
+    state.eraseMode = mode;
+    render();
+  });
+  $('#bar-mode').addEventListener('click', () => {
+    state.barView = !state.barView;
+    if (state.barView) state.barIndex = Math.floor(cursorTime() / barLength(state[state.target]) + EPS);
+    render();
+    applyBoard();
+  });
+  $('#bar-prev').addEventListener('click', () => stepBar(-1));
+  $('#bar-next').addEventListener('click', () => stepBar(1));
+  $('#grid-size').innerHTML = GRIDS.map(([k, label]) => `<option value="${k}">${label}</option>`).join('');
+  $('#grid-size').addEventListener('change', (e) => {
+    state.grid = e.target.value;
+    persist();
+    render();
+  });
+  $('#board-pin').addEventListener('click', () => {
+    state.pinned = !state.pinned;
     render();
   });
   $('#undo').addEventListener('click', undo);
@@ -889,6 +1068,7 @@ document.addEventListener('keydown', (e) => {
 const isHorizontal = () => state.full || landscapeMQ.matches;
 
 function setZoom(z) {
+  if (state.full && (state.pinned || state.barView)) return;
   const old = state.zoom;
   state.zoom = Math.round(clamp(z, ZOOM_MIN, ZOOM_MAX) * 100) / 100;
   persist();
@@ -1058,6 +1238,10 @@ function clampBoard() {
 }
 
 function applyBoard() {
+  if (state.barView) {
+    $('#cards').style.transform = ''; // the bar view has no pan and no zoom
+    return;
+  }
   clampBoard();
   $('#cards').style.transform = `translate(${board.x.toFixed(1)}px, ${board.y.toFixed(1)}px) scale(${state.zoom})`;
   $('#zoom-reset').textContent = `${Math.round(state.zoom * 100)}%`;
@@ -1074,16 +1258,18 @@ function zoomAt(z, cx, cy) {
 
 /** Scroll the board so the cursor / selected note is visible. */
 function keepInBoard(staff) {
+  if (state.pinned || state.barView) return;
   const el = $('.note.selected', staff) ?? $('.cursor', staff);
   if (!el) return;
   const r = el.getBoundingClientRect();
   const v = boardView();
-  const m = 40;
+  const mx = 40; // sideways: scroll a little before the cursor reaches the tools
+  const my = 6; // up / down: only when it would leave the screen
   let moved = false;
-  if (r.right > v.w - m) (board.x -= r.right - v.w + 2 * m), (moved = true);
-  else if (r.left < m) (board.x += m - r.left + m), (moved = true);
-  if (r.bottom > v.h - m) (board.y -= r.bottom - v.h + 2 * m), (moved = true);
-  else if (r.top < m) (board.y += m - r.top + m), (moved = true);
+  if (r.right > v.w - mx) (board.x -= r.right - v.w + 2 * mx), (moved = true);
+  else if (r.left < mx) (board.x += mx - r.left + mx), (moved = true);
+  if (r.bottom > v.h - my) (board.y -= r.bottom - v.h + 3 * my), (moved = true);
+  else if (r.top < my) (board.y += my - r.top + 3 * my), (moved = true);
   if (moved) applyBoard();
 }
 
@@ -1092,12 +1278,18 @@ function bindBoard() {
   let drag = null;
   let pinchStart = null;
   let coast = 0;
+  let swipe = null; // one-bar view: a sideways swipe turns the page
   const mid = () => {
     const [a, b] = [...pts.values()];
     return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, d: Math.hypot(a.x - b.x, a.y - b.y) };
   };
   layoutEl.addEventListener('pointerdown', (e) => {
     if (!state.full || e.pointerType !== 'touch' || e.target.closest('.toolbar')) return;
+    if (state.barView) {
+      swipe = { id: e.pointerId, x: e.clientX, y: e.clientY };
+      return;
+    }
+    if (state.pinned) return;
     cancelAnimationFrame(coast);
     pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
     drag = pts.size === 1 ? { id: e.pointerId, moved: 0, vx: 0, vy: 0, t: e.timeStamp } : null;
@@ -1105,7 +1297,7 @@ function bindBoard() {
   });
   layoutEl.addEventListener('pointermove', (e) => {
     const p = pts.get(e.pointerId);
-    if (!state.full || !p) return;
+    if (!state.full || state.pinned || !p) return;
     const dx = e.clientX - p.x;
     const dy = e.clientY - p.y;
     if (pts.size === 2) {
@@ -1133,6 +1325,16 @@ function bindBoard() {
     drag.t = e.timeStamp;
   });
   const up = (e) => {
+    if (swipe && e.pointerId === swipe.id) {
+      const dx = e.clientX - swipe.x;
+      const dy = e.clientY - swipe.y;
+      swipe = null;
+      if (Math.abs(dx) > 60 && Math.abs(dx) > 2 * Math.abs(dy)) {
+        gestureEnd = Date.now(); // not a tap
+        stepBar(dx < 0 ? 1 : -1);
+      }
+      return;
+    }
     if (!pts.delete(e.pointerId)) return;
     if (pinchStart) {
       pinchStart = null;
@@ -1168,6 +1370,7 @@ function bindBoard() {
     (e) => {
       if (!state.full) return;
       e.preventDefault();
+      if (state.pinned || state.barView) return;
       if (e.ctrlKey) zoomAt(state.zoom * Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY);
       else {
         board.x -= e.deltaX;
@@ -1179,6 +1382,74 @@ function bindBoard() {
   );
 }
 bindBoard();
+
+
+// ---------- drag a note up or down ----------
+// Press a note and move up / down: it follows in steps of the staff (the key signature decides the accidental).
+// On a touch screen a note must be selected first, so that a drag on any other note still pans the board.
+function bindNoteDrag() {
+  let d = null;
+  const pitchAt = (score, dia) => {
+    const n = clamp(dia, 0, 8 * 7 + 6);
+    return formatPitch(fromDiatonic(n, keyAlterations(score.key)[LETTERS[n % 7]] ?? 0));
+  };
+  $('#cards').addEventListener(
+    'pointerdown',
+    (e) => {
+      if (state.erase || e.button > 0 || (e.pointerType !== 'mouse' && !state.full)) return;
+      const noteEl = e.target.closest('.note');
+      const card = e.target.closest('.score-card');
+      if (!noteEl || !card || card.dataset.which !== state.target || noteEl.classList.contains('dim')) return;
+      const which = state.target;
+      const v = Number(noteEl.dataset.v);
+      const i = Number(noteEl.dataset.i);
+      const note = notesOf(which, v)[i];
+      if (!note || note.pitch === REST) return;
+      const sel = state.selected;
+      if (e.pointerType === 'touch' && !(sel && sel.which === which && sel.voice === v && sel.index === i)) return;
+      e.stopPropagation(); // not a pan of the board
+      d = { id: e.pointerId, which, v, i, cy: e.clientY, dia: diatonic(parsePitch(note.pitch)), moved: false, pushed: false };
+    },
+    true
+  );
+  window.addEventListener('pointermove', (e) => {
+    if (!d || e.pointerId !== d.id) return;
+    const svg = $('svg', cards[d.which].staff);
+    const y = svgPoint(svg, e).y;
+    if (!d.moved) {
+      if (Math.abs(e.clientY - d.cy) < 6) return; // still a tap
+      d.moved = true;
+      d.y0 = y;
+    }
+    const note = notesOf(d.which, d.v)[d.i];
+    if (!note) return;
+    const pitch = pitchAt(state[d.which], d.dia + Math.round((d.y0 - y) / STEP));
+    if (pitch === note.pitch) return;
+    if (!d.pushed) {
+      history.push(snapshot()); // one undo step for the whole drag
+      if (history.length > 100) history.shift();
+      future.length = 0;
+      d.pushed = true;
+    }
+    note.pitch = pitch;
+    state.result = null;
+    state.target = d.which;
+    state.selected = { which: d.which, voice: d.v, index: d.i };
+    beep(pitch);
+    render();
+  });
+  const end = (e) => {
+    if (!d || e.pointerId !== d.id) return;
+    if (d.moved) {
+      gestureEnd = Date.now();
+      persist();
+    }
+    d = null;
+  };
+  window.addEventListener('pointerup', end);
+  window.addEventListener('pointercancel', end);
+}
+bindNoteDrag();
 
 /** Full screen: only the staves (an endless canvas to drag and scale) and the tools in a column on the right. */
 function setFull(on) {

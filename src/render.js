@@ -137,7 +137,7 @@ function beamGroups(score, voice, tl) {
 }
 
 /** wrap = false: one endless system (the staff scrolls sideways); width is then only the minimum width. */
-export function layoutScore(score, width, wrap = true, fill = false) {
+export function layoutScore(score, width, wrap = true, fill = false, stretch = false) {
   const bDia = bottomDia(score.clef);
   const ks = keySignature(score.key);
   const L = barLength(score);
@@ -217,7 +217,7 @@ export function layoutScore(score, width, wrap = true, fill = false) {
     sys.staffBottom = sys.staffTop + STAFF_H;
     sys.x0 = MARGIN_X;
     const body = sys.used - sys.header;
-    const scale = last || !body ? 1 : Math.max(1, (avail - sys.header) / body);
+    const scale = (last && !stretch) || !body ? 1 : Math.max(1, (avail - sys.header) / body); // stretch: even the last system fills the width
     let offset = 0;
     sys.barlines = [];
     sys.slots = [];
@@ -265,8 +265,12 @@ export function timeToX(layout, t) {
 }
 
 /** @returns {{ svg: string, layout: object }} */
-export function renderScore(score, { width = 860, wrap = true, status = {}, selected = null, cursor = null, dim = null, fill = false } = {}) {
-  const layout = layoutScore(score, width, wrap, fill);
+export function renderScore(score, { width = 860, wrap = true, status = {}, selected = null, cursor = null, dim = null, fill = false, stretch = false, plain = false, bar = null, base = null } = {}) {
+  // bar: { length, size } draws dotted grid lines (size in beats) over a one-bar slice; base: index of the slice's
+  // first note in the whole voice, so data-i / selection / status refer to the real notes; plain: no final bar line
+  const layout = layoutScore(score, width, wrap, fill, stretch);
+  const at = (v) => base?.[v] ?? 0;
+  if (bar) layout.grid = gridLines(layout, bar.length, bar.size);
   const { systems, bDia, ks } = layout;
   const parts = [];
 
@@ -294,6 +298,7 @@ export function renderScore(score, { width = 860, wrap = true, status = {}, sele
       parts.push(`<line class="staff-line" x1="${x0}" x2="${f(sys.x1)}" y1="${y}" y2="${y}"/>`);
     }
     parts.push(`<line class="bar" x1="${x0}" x2="${x0}" y1="${staffTop}" y2="${staffBottom}"/>`);
+    if (bar) for (const g of layout.grid) parts.push(`<line class="grid" x1="${f(g.x)}" x2="${f(g.x)}" y1="${staffTop - 18}" y2="${staffBottom + 18}"/>`);
 
     // clef
     const clef = CLEF_GLYPH[score.clef];
@@ -321,7 +326,7 @@ export function renderScore(score, { width = 860, wrap = true, status = {}, sele
     sys.barlines.forEach((bx, k) => {
       const final = lastSys && k === sys.barlines.length - 1;
       parts.push(`<line class="bar" x1="${f(bx)}" x2="${f(bx)}" y1="${staffTop}" y2="${staffBottom}"/>`);
-      if (final) parts.push(`<line class="bar thick" x1="${f(bx + 3.5)}" x2="${f(bx + 3.5)}" y1="${staffTop}" y2="${staffBottom}"/>`);
+      if (final && !plain) parts.push(`<line class="bar thick" x1="${f(bx + 3.5)}" x2="${f(bx + 3.5)}" y1="${staffTop}" y2="${staffBottom}"/>`);
     });
 
     // notes
@@ -329,8 +334,8 @@ export function renderScore(score, { width = 860, wrap = true, status = {}, sele
       voiceNotes(score, v).forEach((n, i) => {
         const p = layout.pos[v][i];
         if (p.system !== si) return;
-        const cls = [status[v]?.[i] ?? '', v === 2 ? 'v2' : '', dim === v ? 'dim' : '', selected && selected.voice === v && selected.index === i ? 'selected' : ''].join(' ').replace(/\s+/g, ' ').trim();
-        parts.push(drawNote(n, v, i, f(p.x), sys, bDia, layout.signs[v][i], cls, beams[v][i], layout.two));
+        const cls = [status[v]?.[i + at(v)] ?? '', v === 2 ? 'v2' : '', dim === v ? 'dim' : '', selected && selected.voice === v && selected.index === i + at(v) ? 'selected' : ''].join(' ').replace(/\s+/g, ' ').trim();
+        parts.push(drawNote(n, v, i + at(v), f(p.x), sys, bDia, layout.signs[v][i], cls, beams[v][i], layout.two));
       });
     }
   });
@@ -345,7 +350,48 @@ export function renderScore(score, { width = 860, wrap = true, status = {}, sele
   return { svg, layout };
 }
 
+/**
+ * Dotted lines that split one bar every `size` beats: [{ t, x }] (t counted from the start of the bar).
+ * The notes are not spaced by time, so x between two notes is interpolated; at the notes' own times it is exact.
+ */
+export function gridLines(layout, length, size) {
+  const sys = layout.systems[0];
+  const left = sys.x0 + sys.header;
+  const right = sys.x1;
+  const first = layout.slots.find((sl) => sl.t < EPS);
+  const knots = [{ t: 0, x: first ? first.x : left }, ...layout.slots.filter((sl) => sl.t >= EPS).map((sl) => ({ t: sl.t, x: sl.x })), { t: length, x: right }];
+  const xAt = (t) => {
+    for (let k = 0; k + 1 < knots.length; k++) {
+      const [a, b] = [knots[k], knots[k + 1]];
+      if (t >= a.t - EPS && t <= b.t + EPS) return b.t - a.t < EPS ? a.x : a.x + ((b.x - a.x) * (t - a.t)) / (b.t - a.t);
+    }
+    return right;
+  };
+  const lines = [{ t: 0, x: left }];
+  for (let k = 1; k * size < length - EPS; k++) lines.push({ t: k * size, x: xAt(k * size) });
+  lines.push({ t: length, x: right });
+  return lines;
+}
+
 export const stepY = (sys, step) => sys.staffBottom - step * STEP;
+
+/** Zero-based number of the bar under a point (SVG coordinates), or -1 outside the music. */
+export function barAt(layout, x, y) {
+  let si = 0;
+  let best = Infinity;
+  layout.systems.forEach((s, k) => {
+    const d = Math.abs(y - (s.staffTop + STAFF_H / 2));
+    if (d < best) [best, si] = [d, k];
+  });
+  let index = 0;
+  for (let k = 0; k < si; k++) index += layout.systems[k].barlines.length;
+  const sys = layout.systems[si];
+  for (const bx of sys.barlines) {
+    if (x <= bx) return index;
+    index++;
+  }
+  return -1;
+}
 
 /** Map a point in SVG coordinates to a staff step and a time (the slot to the right of x). */
 export function hitTest(layout, x, y) {
