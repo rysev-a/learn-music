@@ -423,3 +423,48 @@ html.full .toolbar #tool-voice, html.full .toolbar #tool-lock, html.full .toolba
 html.full .toolbar button.icon { width: 100%; min-width: 0; height: 36px; }
 html.full .toolbar .group + .group { border: 0; padding: 0; }
 html.full .toolbar .voice-btn { display: none; }
+
+/* ---- mobile polish ---- */
+html { -webkit-text-size-adjust: 100%; overscroll-behavior-y: none; }
+button, select, .staff { touch-action: manipulation; }
+
+/* notches / home indicator */
+.top { padding-left: max(8px, env(safe-area-inset-left)); padding-right: max(8px, env(safe-area-inset-right)); padding-top: max(4px, env(safe-area-inset-top)); height: calc(var(--bar-h) + env(safe-area-inset-top)); }
+.layout { padding-left: max(8px, env(safe-area-inset-left)); padding-right: max(8px, env(safe-area-inset-right)); padding-bottom: max(24px, env(safe-area-inset-bottom)); }
+.score-card .toolbar { top: calc(var(--bar-h) + env(safe-area-inset-top)); }
+html.full .layout { padding-left: env(safe-area-inset-left); padding-right: calc(96px + env(safe-area-inset-right)); }
+html.full .score-card .toolbar { width: calc(92px + env(safe-area-inset-right)); padding-right: calc(6px + env(safe-area-inset-right)); }
+
+/* finger-sized controls, and no iOS focus-zoom (needs >= 16px) */
+@media (pointer: coarse) {
+  :root { --bar-h: 48px; }
+  .top button, .top button.icon, .top .zoom button { min-width: 40px; width: auto; height: 38px; min-height: 38px; }
+  .top button.icon { width: 40px; }
+  .top select { height: 38px; font-size: 16px; }
+  .toolbar button.icon { min-width: 40px; height: 42px; }
+  input, select, textarea { font-size: 16px; }
+}
+
+/* phone portrait: a slim card header, the staff comes first */
+@media (max-width: 640px) {
+  .meta input[data-meta='title'] { display: none; }
+  .meta { display: flex; flex-wrap: nowrap; gap: 6px; align-items: center; }
+  .meta select, .meta input[type='number'] { flex: 1 1 0; min-width: 0; width: auto; }
+  .meta .tempo { flex: 1 1 0; display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+  .meta .tempo input { width: 100%; }
+  .score-card header { margin-bottom: 4px; }
+  .score-card h2 { font-size: 15px; }
+}
+
+/* phone landscape: every pixel of height is for the staff */
+@media (max-height: 500px) and (orientation: landscape) {
+  :root { --bar-h: 44px; }
+  .score-card .meta { display: none; }
+  .score-card header { margin: 0 0 2px; flex-wrap: nowrap; }
+  .score-card h2 { font-size: 14px; margin: 0; }
+  .card { padding: 6px 10px; margin-bottom: 6px; }
+  .card-actions { width: auto; margin-left: auto; }
+  .card-actions button { min-height: 32px; flex: none; }
+  .score-card .toolbar { margin: 0 -10px 2px; padding: 4px 10px; }
+  .layout { padding-top: 4px; }
+}
