@@ -7,7 +7,7 @@ import { deleteBar, deleteNote, insertIndex, placeNote } from './edit.js';
 import { BAR_PAD_L, BAR_PAD_R, STEP, barAt, bottomDia, hitTest, layoutScore, renderScore } from './render.js';
 import { compare } from './checker.js';
 import { MAX_BASE, MIN_BASE, keyFromCode, keyLayout, lookupKey } from './keyboard.js';
-import { beep, playScore } from './audio.js';
+import { beep, playScore, warmUp } from './audio.js';
 import { LIBRARY, loadLibrary } from './library.js';
 
 await loadLibrary(); // init.json -> LIBRARY (before any state is built)
@@ -17,7 +17,9 @@ const WHICH = ['original', 'mine'];
 const LABELS = { original: 'Original', mine: 'My notes' };
 const $ = (sel, root = document) => root.querySelector(sel);
 const clone = (x) => JSON.parse(JSON.stringify(x));
-const BUILD = '2026-11-14.7';
+const BUILD = '2026-11-14.8';
+const PIANO_W_MIN = 20; // narrowest / widest white key of the piano board (pinch changes it)
+const PIANO_W_MAX = 100;
 $('#build').textContent = `build ${BUILD}`;
 const ZOOM_MIN = 0.3;
 const ZOOM_MAX = 4;
@@ -39,7 +41,7 @@ function loadSaved() {
     const raw = JSON.parse(localStorage.getItem(STORE_KEY));
     const o = validateScore(raw?.original);
     const m = validateScore(raw?.mine);
-    if (o.ok && m.ok) return { original: o.score, mine: m.score, hideOriginal: !!raw.hideOriginal, lib: raw.lib, octave: raw.octave, zoom: raw.zoom, grid: raw.grid };
+    if (o.ok && m.ok) return { original: o.score, mine: m.score, hideOriginal: !!raw.hideOriginal, lib: raw.lib, octave: raw.octave, zoom: raw.zoom, grid: raw.grid, piano: raw.piano, pianoW: raw.pianoW };
   } catch {}
   return null;
 }
@@ -62,6 +64,8 @@ const state = {
   erase: false, // eraser on: tapping deletes
   eraseMode: 'note', // 'note' or 'bar'
   pinned: false, // full screen: position and scale of the board are fixed
+  piano: saved?.piano === true, // the piano keys along the bottom
+  pianoW: Number.isFinite(saved?.pianoW) ? clamp(saved.pianoW, PIANO_W_MIN, PIANO_W_MAX) : 40, // width of a white key in px
   barView: false, // full screen: one bar fills the screen, split by dotted lines to put notes on
   barIndex: 0, // which bar the one-bar view shows (zero-based)
   grid: GRIDS.some(([k]) => k === saved?.grid) ? saved.grid : '4',
@@ -75,7 +79,7 @@ const layouts = { original: null, mine: null };
 
 function persist() {
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify({ original: state.original, mine: state.mine, hideOriginal: state.hideOriginal, lib: state.lib, octave: state.octave, zoom: state.zoom, grid: state.grid }));
+    localStorage.setItem(STORE_KEY, JSON.stringify({ original: state.original, mine: state.mine, hideOriginal: state.hideOriginal, lib: state.lib, octave: state.octave, zoom: state.zoom, grid: state.grid, piano: state.piano, pianoW: state.pianoW }));
   } catch {}
 }
 
@@ -561,6 +565,166 @@ function onStaffMove(which, e) {
   svg.insertAdjacentHTML('beforeend', `<g class="ghost">${head}<text x="${gx + 12}" y="${hit.y - 8}">${label}</text></g>`);
 }
 
+
+// ---------- piano board ----------
+// 88 keys (A0 to C8) along the bottom. One finger drags the keys sideways (with a little momentum), two fingers
+// pinch to change the key width; a tap enters that pitch, with the length chosen in the toolbar.
+
+const WHITE_ORDER = [0, 2, 4, 5, 7, 9, 11]; // pitch classes of the white keys, C to B
+const isBlack = (m) => ![0, 2, 4, 5, 7, 9, 11].includes(m % 12);
+const pianoEl = $('#piano');
+const keysEl = $('#piano-keys');
+let whiteIndexOf = {}; // midi -> position among the white keys (a black key: the white key on its left)
+
+function buildPiano() {
+  let white = 0;
+  let html = '';
+  for (let m = 21; m <= 108; m++) {
+    if (isBlack(m)) {
+      html += `<div class="pkey black" data-midi="${m}" style="left: calc(var(--kw) * ${white - 1 + 0.68})"></div>`;
+      whiteIndexOf[m] = white - 1;
+    } else {
+      const label = m % 12 === 0 ? `<span>C${Math.floor(m / 12) - 1}</span>` : '';
+      html += `<div class="pkey white" data-midi="${m}" style="left: calc(var(--kw) * ${white})">${label}</div>`;
+      whiteIndexOf[m] = white;
+      white++;
+    }
+  }
+  keysEl.innerHTML = html;
+  keysEl.style.width = `calc(var(--kw) * ${white})`;
+  applyPianoWidth();
+}
+
+function applyPianoWidth() {
+  pianoEl.style.setProperty('--kw', `${state.pianoW}px`);
+}
+
+/** Show the middle of the keyboard (around middle C) first. */
+function centerPiano() {
+  pianoEl.scrollLeft = whiteIndexOf[60] * state.pianoW - pianoEl.clientWidth / 2;
+}
+
+/** A tapped key becomes a note: white keys as they are, black keys as sharps (flats in a flat key). */
+function pianoNote(m) {
+  const octave = Math.floor(m / 12) - 1;
+  const pc = m % 12;
+  const at = WHITE_ORDER.indexOf(pc);
+  if (at >= 0) return formatPitch({ letter: LETTERS[at], acc: 0, octave });
+  const flat = keySignature(state[state.target].key).acc < 0;
+  return flat
+    ? formatPitch({ letter: LETTERS[WHITE_ORDER.indexOf(pc + 1)], acc: -1, octave })
+    : formatPitch({ letter: LETTERS[WHITE_ORDER.indexOf(pc - 1)], acc: 1, octave });
+}
+
+function bindPiano() {
+  const ptrs = new Map();
+  let drag = null;
+  let pinch = null;
+  let coast = 0;
+  const down = (el, on) => el?.classList.toggle('down', on);
+  const mid = () => {
+    const [a, b] = [...ptrs.values()];
+    return { x: (a.x + b.x) / 2, d: Math.hypot(a.x - b.x, a.y - b.y) };
+  };
+
+  pianoEl.addEventListener('pointerdown', (e) => {
+    cancelAnimationFrame(coast);
+    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY, key: e.target.closest('.pkey') });
+    if (ptrs.size === 1) {
+      drag = { id: e.pointerId, moved: 0, vx: 0, t: e.timeStamp };
+      down(ptrs.get(e.pointerId).key, true);
+    } else if (ptrs.size === 2) {
+      for (const p of ptrs.values()) down(p.key, false);
+      const m = mid();
+      const box = pianoEl.getBoundingClientRect();
+      drag = null;
+      // the key under the middle of the two fingers stays where it is while the width changes
+      pinch = { d: m.d, w: state.pianoW, anchor: (pianoEl.scrollLeft + m.x - box.left) / state.pianoW, cx: m.x - box.left };
+    }
+  });
+
+  pianoEl.addEventListener('pointermove', (e) => {
+    const p = ptrs.get(e.pointerId);
+    if (!p) return;
+    const dx = e.clientX - p.x;
+    p.x = e.clientX;
+    p.y = e.clientY;
+    if (ptrs.size === 2 && pinch?.d) {
+      const m = mid();
+      state.pianoW = clamp(pinch.w * (m.d / pinch.d), PIANO_W_MIN, PIANO_W_MAX);
+      applyPianoWidth();
+      pianoEl.scrollLeft = pinch.anchor * state.pianoW - pinch.cx;
+      gestureEnd = Date.now();
+    } else if (drag?.id === e.pointerId) {
+      drag.moved += Math.abs(dx);
+      if (drag.moved < 8) return; // still a tap
+      down(p.key, false);
+      pianoEl.scrollLeft -= dx;
+      const dt = Math.max(1, e.timeStamp - drag.t);
+      drag.vx = 0.8 * drag.vx + 0.2 * (dx / dt);
+      drag.t = e.timeStamp;
+    }
+  });
+
+  const up = (e) => {
+    const p = ptrs.get(e.pointerId);
+    if (!p) return;
+    ptrs.delete(e.pointerId);
+    down(p.key, false);
+    if (pinch) {
+      if (ptrs.size < 2) {
+        pinch = null;
+        state.pianoW = Math.round(state.pianoW);
+        persist();
+        // the finger left over carries on as a drag, not as a tap
+        const rest = [...ptrs.keys()][0];
+        drag = rest === undefined ? null : { id: rest, moved: 99, vx: 0, t: e.timeStamp };
+      }
+      return;
+    }
+    if (drag?.id !== e.pointerId) return;
+    if (drag.moved < 8 && e.type === 'pointerup' && p.key) {
+      pianoKey(Number(p.key.dataset.midi)); // a tap
+    } else if (drag.moved >= 8 && e.timeStamp - drag.t < 80 && Math.abs(drag.vx) > 0.15) {
+      let v = drag.vx;
+      const step = () => {
+        if (Math.abs(v) < 0.02) return;
+        pianoEl.scrollLeft -= v * 16;
+        v *= 0.95;
+        coast = requestAnimationFrame(step);
+      };
+      step();
+    }
+    drag = null;
+  };
+  pianoEl.addEventListener('pointerup', up);
+  pianoEl.addEventListener('pointercancel', up);
+
+  pianoEl.addEventListener(
+    'wheel',
+    (e) => {
+      e.preventDefault();
+      if (e.ctrlKey) {
+        const box = pianoEl.getBoundingClientRect();
+        const cx = e.clientX - box.left;
+        const anchor = (pianoEl.scrollLeft + cx) / state.pianoW;
+        state.pianoW = clamp(state.pianoW * Math.exp(-e.deltaY * 0.01), PIANO_W_MIN, PIANO_W_MAX);
+        applyPianoWidth();
+        pianoEl.scrollLeft = anchor * state.pianoW - cx;
+        persist();
+      } else pianoEl.scrollLeft += e.deltaX || e.deltaY;
+    },
+    { passive: false }
+  );
+}
+
+function pianoKey(m) {
+  insertNote({ pitch: pianoNote(m), ...durationOf() });
+}
+
+buildPiano();
+bindPiano();
+
 // ---------- note keyboard ----------
 
 const ACC_SIGN = { '-1': '\u266D', 0: '', 1: '\u266F' };
@@ -584,6 +748,7 @@ function insertNote(note) {
       index = placeNote(notes, t, note);
     }
     afterEnter(which, voice, index, insert);
+    if (state.barView) state.barIndex = Math.floor(cursorTime(which) / barLength(state[which]) + EPS); // the one-bar view follows the cursor
   });
   beep(note.pitch);
 }
@@ -669,6 +834,7 @@ function syncToolbar() {
   $('#tool-rest').setAttribute('aria-pressed', String(state.rest));
   $('#tool-dot').setAttribute('aria-pressed', String(state.dot));
   $('#tool-lock').setAttribute('aria-pressed', String(state.accLock));
+  $('#piano-toggle').setAttribute('aria-pressed', String(state.piano));
   $('#erase').setAttribute('aria-pressed', String(state.erase));
   $('#tool-erase').classList.toggle('open', state.erase);
   for (const b of document.querySelectorAll('[data-erase]')) b.setAttribute('aria-pressed', String(state.erase && b.dataset.erase === state.eraseMode));
@@ -806,6 +972,8 @@ let barGeo = null; // size of the one-bar view: { W (layout width), s (scale) }
 function render() {
   const bar = state.full && state.barView;
   document.documentElement.classList.toggle('barview', bar);
+  document.documentElement.classList.toggle('piano', state.piano);
+  $('#piano').hidden = !state.piano;
   if (bar) {
     state.barIndex = clamp(state.barIndex, 0, barCount() - 1);
     barGeo = barGeometry();
@@ -853,6 +1021,13 @@ function bindToolbar() {
     state.erase = true;
     state.eraseMode = mode;
     render();
+  });
+  $('#piano-toggle').addEventListener('click', () => {
+    state.piano = !state.piano;
+    persist();
+    render();
+    applyBoard();
+    if (state.piano) centerPiano();
   });
   $('#bar-mode').addEventListener('click', () => {
     state.barView = !state.barView;
@@ -1495,6 +1670,7 @@ new ResizeObserver(() => {
 }).observe($('#cards'));
 
 buildCards();
+setTimeout(warmUp, 600);
 buildLibrary();
 buildKeyboard();
 bindToolbar();

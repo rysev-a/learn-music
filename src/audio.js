@@ -1,7 +1,8 @@
 import { REST, beatsOf, midi, parsePitch, voiceNotes, voicesOf } from './score.js';
 
-// A piano from additive synthesis: every note is rendered once into a buffer (a few slightly inharmonic partials
-// that die away at their own pace, two strings a hair apart, a soft hammer knock) and played back from the cache.
+// The sound is the recorded piano in sounds/piano. Until a recording is loaded (and for keys outside its range) a
+// synthesized piano stands in: additive synthesis, every note rendered once into a buffer (a few slightly inharmonic
+// partials that die away at their own pace, two strings a hair apart, a soft hammer knock).
 
 const SAMPLE_RATE_FALLBACK = 44100;
 const midiFreq = (m) => 440 * 2 ** ((m - 69) / 12);
@@ -72,11 +73,20 @@ export function pianoSamples(m, rate = SAMPLE_RATE_FALLBACK) {
   return out;
 }
 
+// ---- the recorded piano (sounds/piano, 89 keys A0 to Db8) ----
+
+const SAMPLE_DIR = new URL('../sounds/piano/', import.meta.url);
+const NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
+/** File name (without .mp3) of a MIDI note, or null outside the recorded range. */
+export const sampleName = (m) => (m >= 21 && m <= 109 ? NAMES[m % 12] + (Math.floor(m / 12) - 1) : null);
+
 let ctx;
 let master;
-const cache = new Map();
+const recorded = new Map(); // midi -> decoded buffer
+const pending = new Map(); // midi -> loading promise (or null once it failed)
+const synth = new Map(); // midi -> synthesized buffer, used until the recording is there (and outside its range)
 
-function audio() {
+function context() {
   if (!ctx) {
     ctx = new AudioContext();
     master = ctx.createDynamicsCompressor(); // many notes at once must not clip
@@ -84,29 +94,98 @@ function audio() {
     master.ratio.value = 4;
     master.connect(ctx.destination);
   }
-  ctx.resume();
   return ctx;
+}
+
+function audio() {
+  const c = context();
+  c.resume();
+  return c;
+}
+
+const decode = (c, data) =>
+  new Promise((resolve, reject) => {
+    const p = c.decodeAudioData(data, resolve, reject); // older Safari only knows the callback form
+    p?.then?.(resolve, reject);
+  });
+
+/** The recordings are quiet (peaks around 0.08): bring each to the same level. */
+function normalise(buf) {
+  let peak = 0;
+  for (let ch = 0; ch < buf.numberOfChannels; ch++) for (const v of buf.getChannelData(ch)) peak = Math.max(peak, Math.abs(v));
+  const gain = peak ? Math.min(40, 0.8 / peak) : 1;
+  for (let ch = 0; ch < buf.numberOfChannels; ch++) {
+    const d = buf.getChannelData(ch);
+    for (let i = 0; i < d.length; i++) d[i] *= gain;
+  }
+}
+
+function load(c, m) {
+  const name = sampleName(m);
+  if (!name || pending.get(m) === null) return Promise.resolve(null);
+  if (!pending.has(m)) {
+    pending.set(
+      m,
+      fetch(new URL(`${name}.mp3`, SAMPLE_DIR))
+        .then((r) => {
+          if (!r.ok) throw new Error(`${name}: ${r.status}`);
+          return r.arrayBuffer();
+        })
+        .then((data) => decode(c, data))
+        .then((buf) => {
+          normalise(buf);
+          recorded.set(m, buf);
+          return buf;
+        })
+        .catch(() => {
+          pending.set(m, null); // no recording for this key: the synthesized note stays
+          return null;
+        })
+    );
+  }
+  return pending.get(m);
+}
+
+/** Fetch every recording in the background (a few at a time), so the first notes already sound like the piano. */
+export function warmUp() {
+  let c;
+  try {
+    c = context();
+  } catch {
+    return;
+  }
+  const keys = [];
+  for (let m = 21; m <= 109; m++) keys.push(m);
+  const worker = async () => {
+    while (keys.length) await load(c, keys.shift());
+  };
+  for (let i = 0; i < 4; i++) worker();
 }
 
 function bufferFor(c, pitch) {
   const m = midi(parsePitch(pitch));
-  let buf = cache.get(m);
-  if (!buf) {
+  const buf = recorded.get(m);
+  if (buf) return buf;
+  load(c, m); // not there yet: start fetching it, play the synthesized note this time
+  let alt = synth.get(m);
+  if (!alt) {
     const data = pianoSamples(m, c.sampleRate);
-    buf = c.createBuffer(1, data.length, c.sampleRate);
-    buf.copyToChannel(data, 0);
-    cache.set(m, buf);
+    alt = c.createBuffer(1, data.length, c.sampleRate);
+    alt.copyToChannel(data, 0);
+    synth.set(m, alt);
   }
-  return buf;
+  return alt;
 }
 
 /** Strike a key at `start`, let go after `dur` seconds (a short release, so it does not stop with a click). */
 function tone(c, pitch, start, dur, volume = 0.5) {
   const src = c.createBufferSource();
-  src.buffer = bufferFor(c, pitch);
+  const buf = bufferFor(c, pitch);
+  src.buffer = buf;
   const gain = c.createGain();
   gain.gain.setValueAtTime(volume, start);
-  const off = start + Math.max(0.12, dur);
+  // let go after the note, but always fade out before the recording runs out
+  const off = Math.max(start + 0.05, Math.min(start + Math.max(0.12, dur), start + buf.duration - 0.2));
   gain.gain.setValueAtTime(volume, off);
   gain.gain.linearRampToValueAtTime(0, off + 0.18);
   src.connect(gain).connect(master);
@@ -130,7 +209,7 @@ export function beep(pitch) {
   if (pitch === REST) return;
   try {
     const c = audio();
-    tone(c, pitch, c.currentTime, 0.6, 0.55);
+    tone(c, pitch, c.currentTime, 0.9, 0.55);
   } catch {
     // no sound (no Web Audio, or the browser refused): editing must go on
   }

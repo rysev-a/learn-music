@@ -6,7 +6,7 @@ import { renderScore, hitTest, layoutScore, gridLines } from '../src/render.js';
 import { readFileSync } from 'node:fs';
 import { LIBRARY, allExercises, setLibrary } from '../src/library.js';
 import { keyLayout, lookupKey, keyFromCode } from '../src/keyboard.js';
-import { pianoSamples } from '../src/audio.js';
+import { pianoSamples, sampleName } from '../src/audio.js';
 import { placeNote, insertIndex, deleteNote, restsFor, deleteBar } from '../src/edit.js';
 
 assert.ok(setLibrary(JSON.parse(readFileSync(new URL('../init.json', import.meta.url), 'utf8'))), 'init.json is a valid library');
@@ -261,4 +261,17 @@ test('one-bar view: beats are equally wide and the dotted lines are equally spac
   assert.ok(Math.abs(lines.at(-1).x - layout.systems[0].x1) < 1e-6);
   // bare: the staff starts right after the key signature (none in C), not after a clef
   assert.ok(layout.systems[0].header < 10);
+});
+
+test('recorded piano: every key of A0..Db8 has a sample file, none outside', () => {
+  assert.equal(sampleName(21), 'A0');
+  assert.equal(sampleName(60), 'C4');
+  assert.equal(sampleName(61), 'Db4');
+  assert.equal(sampleName(108), 'C8');
+  assert.equal(sampleName(109), 'Db8');
+  assert.equal(sampleName(20), null);
+  assert.equal(sampleName(110), null);
+  for (let m = 21; m <= 109; m++) {
+    assert.ok(readFileSync(new URL(`../sounds/piano/${sampleName(m)}.mp3`, import.meta.url)).length > 1000, `sample for ${m}`);
+  }
 });

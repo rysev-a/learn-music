@@ -76,6 +76,11 @@
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2l6 7-6 6 6 6c-4-1-5 1-3 3"/></svg>
           </button>
         </div>
+        <div class="group" id="tool-piano">
+          <button class="icon" id="piano-toggle" aria-pressed="false" title="Piano keys at the bottom" aria-label="Show the piano">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M9 12v7M15 12v7"/><path d="M7.5 5v7M12 5v7M16.5 5v7" stroke-width="2.6"/></svg>
+          </button>
+        </div>
         <div class="group" id="tool-erase">
           <button class="icon" id="erase" aria-pressed="false" title="Erase: tap a note or a bar to delete it" aria-label="Erase">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 21h12"/><path d="M5.5 13.5L13 6a2 2 0 0 1 2.8 0l3.2 3.2a2 2 0 0 1 0 2.8L11.5 19.5H8.3a2 2 0 0 1-1.4-.6l-1.4-1.4a2 2 0 0 1 0-2.8z"/><path d="M9 10l5 5"/></svg>
@@ -161,6 +166,9 @@
       </section>
     </aside>
   </div>
+
+  <!-- piano keys along the bottom: tap to enter a note, drag sideways to move, pinch to change the key width -->
+  <div id="piano" hidden><div id="piano-keys"></div></div>
 
   <footer id="build"></footer>
 
