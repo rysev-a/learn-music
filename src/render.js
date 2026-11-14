@@ -137,7 +137,7 @@ function beamGroups(score, voice, tl) {
 }
 
 /** wrap = false: one endless system (the staff scrolls sideways); width is then only the minimum width. */
-export function layoutScore(score, width, wrap = true) {
+export function layoutScore(score, width, wrap = true, fill = false) {
   const bDia = bottomDia(score.clef);
   const ks = keySignature(score.key);
   const L = barLength(score);
@@ -236,6 +236,8 @@ export function layoutScore(score, width, wrap = true) {
     }
     sys.x1 = sys.x0 + sys.header + offset * scale;
     if (last && !laid.length) sys.x1 = sys.x0 + width - 2 * MARGIN_X;
+    // a fixed board: the last staff runs to the same end point whatever the score length, so staves line up
+    if (fill && last) sys.x1 = Math.max(sys.x1, width - MARGIN_X);
     maxX = Math.max(maxX, sys.x1 + MARGIN_X);
   });
 
@@ -263,8 +265,8 @@ export function timeToX(layout, t) {
 }
 
 /** @returns {{ svg: string, layout: object }} */
-export function renderScore(score, { width = 860, wrap = true, status = {}, selected = null, cursor = null, dim = null } = {}) {
-  const layout = layoutScore(score, width, wrap);
+export function renderScore(score, { width = 860, wrap = true, status = {}, selected = null, cursor = null, dim = null, fill = false } = {}) {
+  const layout = layoutScore(score, width, wrap, fill);
   const { systems, bDia, ks } = layout;
   const parts = [];
 
