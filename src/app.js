@@ -1,10 +1,10 @@
 import {
   DURATIONS, KEYS, LETTERS, REST, TIMES,
-  barIssues, barLength, beatsOf, diatonic, emptyScore, endTime, timeline, formatPitch, fromDiatonic, hasSecondVoice, keyAlterations,
+  barIssues, barLength, beatsOf, diatonic, keySignature, emptyScore, endTime, timeline, formatPitch, fromDiatonic, hasSecondVoice, keyAlterations,
   parsePitch, startOf, stringifyScore, validateScore, voiceNotes,
 } from './score.js';
 import { deleteBar, deleteNote, insertIndex, placeNote } from './edit.js';
-import { STEP, barAt, bottomDia, hitTest, layoutScore, renderScore } from './render.js';
+import { BAR_PAD_L, STEP, barAt, bottomDia, hitTest, layoutScore, renderScore } from './render.js';
 import { compare } from './checker.js';
 import { MAX_BASE, MIN_BASE, keyFromCode, keyLayout, lookupKey } from './keyboard.js';
 import { beep, playScore } from './audio.js';
@@ -17,7 +17,7 @@ const WHICH = ['original', 'mine'];
 const LABELS = { original: 'Original', mine: 'My notes' };
 const $ = (sel, root = document) => root.querySelector(sel);
 const clone = (x) => JSON.parse(JSON.stringify(x));
-const BUILD = '2026-11-14.5';
+const BUILD = '2026-11-14.6';
 $('#build').textContent = `build ${BUILD}`;
 const ZOOM_MIN = 0.3;
 const ZOOM_MAX = 4;
@@ -361,7 +361,7 @@ function renderCard(which) {
     const L = barLength(score);
     const cur = cursor && cursor.t - from >= -EPS && cursor.t - from <= L + EPS ? { voice: cursor.voice, t: cursor.t - from } : null;
     const bar = state.target === which ? { length: L, size: gridBeats() } : null;
-    const { svg, layout } = renderScore(slice, { width: barGeo.W, wrap: true, stretch: true, plain: true, status, selected, cursor: cur, dim, base, bar });
+    const { svg, layout } = renderScore(slice, { width: barGeo.W, wrap: true, stretch: true, plain: true, timed: true, bare: true, status, selected, cursor: cur, dim, base, bar });
     staff.classList.remove('h-scroll');
     const svgEl = putSvg(staff, svg);
     svgEl.style.width = `${Math.round(layout.width * barGeo.s)}px`;
@@ -427,10 +427,20 @@ function barGeometry() {
   const availW = v.w - 6;
   const shown = WHICH.filter((w) => !isHidden(w));
   const availH = (v.h - 4) / Math.max(1, shown.length) - 22; // minus the label above each staff
-  const heightAt = (W) => Math.max(...shown.map((w) => layoutScore(sliceBar(w, state.barIndex).slice, W, true, false, true).height));
-  // the bar must fit whole: as wide as the widest of the shown bars needs (at least ~230 units)
-  const natural = Math.max(230, ...shown.map((w) => Math.ceil(layoutScore(sliceBar(w, state.barIndex).slice, 0, false).width)));
+  // the bar must fit whole: beats are equally wide, so the closest two starts (or dotted lines) need ~24 units
+  const gaps = [gridBeats()];
+  let head = 0;
+  let L = 0;
+  for (const w of shown) {
+    const { slice } = sliceBar(w, state.barIndex);
+    const starts = [...new Set([1, 2].flatMap((v) => timeline(voiceNotes(slice, v)).map((x) => Math.round(x.start * 1000))))].sort((x, y) => x - y);
+    for (let i = 1; i < starts.length; i++) gaps.push((starts[i] - starts[i - 1]) / 1000);
+    head = Math.max(head, keySignature(state[w].key).letters.length * 10 + 12);
+    L = Math.max(L, barLength(state[w]));
+  }
+  const natural = Math.max(230, head + BAR_PAD_L + (L * 24) / Math.min(...gaps));
   let sc = Math.min(2.4, availW / natural);
+  const heightAt = (W) => Math.max(...shown.map((w) => layoutScore(sliceBar(w, state.barIndex).slice, W, true, false, true, { timed: true, bare: true }).height));
   sc = Math.min(sc, availH / heightAt(availW / sc));
   return { W: availW / sc, s: sc };
 }
