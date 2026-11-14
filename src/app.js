@@ -17,6 +17,8 @@ const WHICH = ['original', 'mine'];
 const LABELS = { original: 'Original', mine: 'My notes' };
 const $ = (sel, root = document) => root.querySelector(sel);
 const clone = (x) => JSON.parse(JSON.stringify(x));
+const BUILD = '2026-11-14.5';
+$('#build').textContent = `build ${BUILD}`;
 const ZOOM_MIN = 0.3;
 const ZOOM_MAX = 4;
 // split sizes of the one-bar view: a fraction of a whole note (key = its denominator)

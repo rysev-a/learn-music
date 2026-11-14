@@ -512,3 +512,8 @@ html.full .toolbar {
   padding-bottom: calc(24px + env(safe-area-inset-bottom));
 }
 html.full .toolbar button, html.full .toolbar select { touch-action: pan-y; }
+
+/* error banner and build stamp (to tell which version a phone is really running) */
+#diag { position: fixed; left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom)); z-index: 100; padding: 8px 12px; border-radius: 8px; background: #c92a2a; color: #fff; font-size: 12px; word-break: break-word; }
+#build { text-align: center; font-size: 11px; color: var(--muted); padding: 0 0 16px; }
+html.full #build { display: none; }

@@ -128,8 +128,12 @@ function tone(c, pitch, start, dur, volume = 0.5) {
 /** Short preview of a single pitch. */
 export function beep(pitch) {
   if (pitch === REST) return;
-  const c = audio();
-  tone(c, pitch, c.currentTime, 0.6, 0.55);
+  try {
+    const c = audio();
+    tone(c, pitch, c.currentTime, 0.6, 0.55);
+  } catch {
+    // no sound (no Web Audio, or the browser refused): editing must go on
+  }
 }
 
 /** Play a whole score (both voices together). Returns a stop() function. onNote(voice, index) fires as each note starts. */

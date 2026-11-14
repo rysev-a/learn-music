@@ -9,6 +9,16 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <!-- any script error on a phone shows up here instead of failing silently (tap to dismiss) -->
+  <div id="diag" role="alert" hidden onclick="this.hidden = true"></div>
+  <script>
+    window.addEventListener('error', function (e) {
+      var d = document.getElementById('diag');
+      if (!d) return;
+      d.hidden = false;
+      d.textContent = 'Error: ' + (e.message || (e.target && (e.target.src || e.target.href)) || 'could not load') + (e.lineno ? ' (line ' + e.lineno + ')' : '');
+    }, true);
+  </script>
   <header class="top">
     <span class="logo" aria-label="Learn Music Notes" title="Learn Music Notes">♪</span>
     <select id="lib-piece" aria-label="Composition"></select>
@@ -151,6 +161,8 @@
       </section>
     </aside>
   </div>
+
+  <footer id="build"></footer>
 
   <template id="card-tpl">
     <section class="card score-card">
