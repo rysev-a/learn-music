@@ -119,6 +119,9 @@
           <button class="icon" id="board-pin" aria-pressed="false" title="Fix the position and the scale of the board" aria-label="Fix position and zoom">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16v6"/><path d="M8.5 2.5h7l-1 6.5 3 3.5v2.5h-11v-2.5l3-3.5z"/></svg>
           </button>
+          <button class="icon" id="panel-settings" title="Arrange the tools of this panel" aria-label="Panel layout">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+          </button>
           <button class="icon" id="full-exit" title="Leave full screen" aria-label="Leave full screen">✕</button>
         </div>
         <div class="group full-only" id="bar-tools">
@@ -174,13 +177,34 @@
   <div id="piano" hidden><div id="piano-keys"></div></div>
 
   <!-- sound picker: 50 sounds in groups, a play icon on each to hear it before choosing -->
-  <div id="sound-modal" hidden>
+  <div id="sound-modal" class="modal" hidden>
     <div class="sm-box" role="dialog" aria-modal="true" aria-label="Sound">
       <div class="sm-head">
         <h2>Sound</h2>
         <button class="icon" id="sound-close" title="Close" aria-label="Close">✕</button>
       </div>
       <div id="sound-list"></div>
+    </div>
+  </div>
+
+  <!-- panel layout: drag the tools of the right-hand panel to other cells, leave cells empty, or hide tools -->
+  <div id="panel-modal" class="modal" hidden>
+    <div class="sm-box" role="dialog" aria-modal="true" aria-label="Panel layout">
+      <div class="sm-head">
+        <h2>Panel layout</h2>
+        <button class="icon" id="panel-close" title="Close" aria-label="Close">✕</button>
+      </div>
+      <div id="panel-body">
+        <p id="panel-hint" class="muted"></p>
+        <div id="panel-grid"></div>
+        <h3>Hidden tools <small>(drop a tool here to hide it)</small></h3>
+        <div id="panel-tray"></div>
+        <p class="muted panel-note">A dotted corner means the tool shows only when it applies (the one-bar view, the eraser being on) and takes no room otherwise.</p>
+        <div class="row panel-actions">
+          <button id="panel-tidy" title="Close up the empty cells">Remove gaps</button>
+          <button id="panel-reset" title="Back to the original layout">Reset</button>
+        </div>
+      </div>
     </div>
   </div>
 

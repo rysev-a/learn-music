@@ -8,6 +8,7 @@ import { LIBRARY, allExercises, setLibrary } from '../src/library.js';
 import { keyLayout, lookupKey, keyFromCode } from '../src/keyboard.js';
 import { pianoSamples, sampleName, SOUNDS, SOUND_GROUPS } from '../src/audio.js';
 import { renderVoice } from '../src/voices.js';
+import { DEFAULT_ORDER, REQUIRED, normalizeOrder, placeTool, removeTool, removeGaps, hiddenTools } from '../src/panel.js';
 import { placeNote, insertIndex, deleteNote, restsFor, deleteBar } from '../src/edit.js';
 
 assert.ok(setLibrary(JSON.parse(readFileSync(new URL('../init.json', import.meta.url), 'utf8'))), 'init.json is a valid library');
@@ -330,4 +331,31 @@ test('synthesized voices: finite, normalised, in range, die away (or hold), and 
     }
   }
   assert.deepEqual(tuned, []);
+});
+
+test('tool panel layout: move, swap, gaps, hiding, and always a way out', () => {
+  const o = ['a', 'b', 'c', 'settings', 'exit'];
+  const known = [...o, 'd'];
+  // a tool dropped on another one: they swap
+  assert.deepEqual(placeTool(o, 'a', 2), ['c', 'b', 'a', 'settings', 'exit']);
+  // into an empty cell: it moves and leaves a gap behind
+  assert.deepEqual(placeTool(o, 'a', 6), [null, 'b', 'c', 'settings', 'exit', null, 'a']);
+  // from the hidden tools onto a tool: that one is hidden
+  assert.deepEqual(placeTool(o, 'd', 1), ['a', 'd', 'c', 'settings', 'exit']);
+  assert.deepEqual(hiddenTools(placeTool(o, 'd', 1), known), ['b']);
+  // dropped where it already is: nothing changes
+  assert.deepEqual(placeTool(o, 'b', 1), o);
+  // hide, and the required ones stay
+  assert.deepEqual(removeTool(o, 'b'), ['a', null, 'c', 'settings', 'exit']);
+  assert.deepEqual(removeTool(o, 'exit'), o);
+  assert.deepEqual(removeTool(o, 'settings'), o);
+  assert.deepEqual(removeGaps(['a', null, 'c', null, 'exit']), ['a', 'c', 'exit']);
+  // a saved layout is made safe: unknown ids and repeats dropped, required ones put back
+  assert.deepEqual(normalizeOrder(['a', 'zzz', 'a', null, 'b'], known), ['a', null, null, null, 'b', 'settings', 'exit']);
+  assert.deepEqual(normalizeOrder('garbage'), DEFAULT_ORDER);
+  assert.deepEqual(normalizeOrder(null), DEFAULT_ORDER);
+  assert.ok(REQUIRED.every((id) => normalizeOrder([]).includes(id)));
+  // the default has no repeats and has the required tools
+  assert.equal(new Set(DEFAULT_ORDER).size, DEFAULT_ORDER.length);
+  assert.ok(REQUIRED.every((id) => DEFAULT_ORDER.includes(id)));
 });

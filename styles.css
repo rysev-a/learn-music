@@ -494,13 +494,10 @@ html.full .card { border-radius: 0; box-shadow: 0 0 0 1px var(--line); }
 .bar-opt { display: none; }
 html.barview button.bar-opt { display: inline-flex; align-items: center; justify-content: center; }
 html.barview span.bar-opt { display: block; text-align: center; font-size: 12px; color: var(--muted); align-self: center; }
-html.barview select.bar-opt { display: block; grid-column: 1 / -1; height: 34px; font-size: 16px; }
+html.barview select.bar-opt { display: block; width: 100%; min-width: 0; height: 34px; padding: 0; text-align: center; text-align-last: center; -webkit-appearance: none; appearance: none; font-size: 12px; }
 html.barview #cards { transform: none !important; padding: 2px 3px; }
 html.barview .card { margin-bottom: 0; }
 /* bar view: page and split controls first in the tool column, so they are always in reach */
-html.barview #bar-prev, html.barview #bar-label, html.barview #bar-next { order: -6; }
-html.barview #grid-size { order: -5; }
-html.barview #bar-mode { order: -4; }
 
 /* the tool column in full screen scrolls up / down by touch; the last button stays reachable above the home bar */
 html.full .toolbar {
@@ -552,10 +549,11 @@ html.piano #build { padding-bottom: calc(var(--piano-h) + 16px); }
 /* sound menu */
 button.sound-open { display: inline-flex; align-items: center; gap: 4px; max-width: 150px; height: 34px; padding: 0 8px; font-size: 13px; }
 .sound-open #sound-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-html.full .toolbar button.sound-open { grid-column: 1 / -1; max-width: none; width: 100%; font-size: 12.5px; padding: 0 6px; justify-content: flex-start; }
+html.full .toolbar button.sound-open { max-width: none; width: 100%; min-width: 0; padding: 0; justify-content: center; font-size: 16px; }
+html.full .sound-open #sound-name { display: none; }
 
 /* sound picker: a sheet over the page; the list scrolls, the header stays */
-#sound-modal { position: fixed; inset: 0; z-index: 200; background: rgba(0, 0, 0, .5); display: flex; align-items: center; justify-content: center; padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
+.modal { position: fixed; inset: 0; z-index: 200; background: rgba(0, 0, 0, .5); display: flex; align-items: center; justify-content: center; padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
 body.modal-open { overflow: hidden; }
 .sm-box { display: flex; flex-direction: column; width: min(100%, 520px); max-height: 100%; background: var(--card); color: var(--ink); border-radius: 14px; box-shadow: 0 12px 40px rgba(0, 0, 0, .4); overflow: hidden; }
 .sm-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--line); }
@@ -578,3 +576,31 @@ body.modal-open { overflow: hidden; }
   .sm-row .sm-play { width: 34px; height: 34px; }
   .sm-row .sm-pick { min-height: 34px; font-size: 14px; }
 }
+
+/* tool panel layout: tools carry an inline `order`, empty positions are gap cells, hidden tools are not shown */
+.tool-off { display: none !important; }
+.tool-gap { min-height: 34px; }
+html:not(.full) .tool-gap { display: none; }
+
+/* its editor (a modal) */
+#panel-body { overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 4px 14px 16px; }
+#panel-hint { margin: 8px 0 12px; font-size: 13px; line-height: 1.4; }
+#panel-grid { display: grid; grid-template-columns: repeat(var(--cols, 3), 1fr); gap: 8px; max-width: 330px; margin: 0 auto; }
+.pcell { min-height: 54px; display: flex; border: 2px dashed var(--line); border-radius: 12px; }
+.pcell:not(.empty) { border: 2px solid transparent; }
+.pcell.over, #panel-tray.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.pchip { flex: 1; min-height: 50px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 10px; background: var(--card); font-size: 18px; line-height: 1; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; cursor: grab; }
+.pchip svg { pointer-events: none; }
+.pchip.picked { background: var(--accent); border-color: var(--accent); color: #fff; }
+.pchip.dragging { opacity: .3; }
+.pchip.fixed { border-style: dashed; }
+#panel-body h3 { margin: 18px 0 8px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+#panel-body h3 small { text-transform: none; letter-spacing: 0; }
+#panel-tray { display: flex; flex-wrap: wrap; gap: 8px; min-height: 66px; padding: 8px; border: 2px dashed var(--line); border-radius: 12px; align-items: center; }
+#panel-tray .pchip { flex: none; width: 54px; height: 54px; }
+.panel-actions { margin-top: 14px; gap: 8px; }
+.panel-actions button { min-height: 40px; padding: 0 14px; }
+.pghost { position: fixed; z-index: 300; width: 56px; height: 56px; transform: translate(-50%, -50%) scale(1.12); pointer-events: none; opacity: .92; box-shadow: 0 6px 18px rgba(0, 0, 0, .35); }
+.pchip.cond { position: relative; }
+.pchip.cond::after { content: ''; position: absolute; top: 4px; right: 4px; width: 7px; height: 7px; border-radius: 50%; border: 2px dotted var(--muted); }
+.panel-note { margin: 12px 0 0; font-size: 12px; line-height: 1.4; }
