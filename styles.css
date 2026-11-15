@@ -592,7 +592,7 @@ html:not(.full) .tool-gap { display: none; }
 .pcell.over, #panel-tray.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .pchip { flex: 1; min-height: 50px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 10px; background: var(--card); font-size: 18px; line-height: 1; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; cursor: grab; }
 .pchip svg { pointer-events: none; }
-.pchip.picked { background: var(--accent); border-color: var(--accent); color: #fff; }
+.pchip.picked { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent); }
 .pchip.dragging { opacity: .3; }
 .pchip.fixed { border-style: dashed; }
 #panel-body h3 { margin: 18px 0 8px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
@@ -614,3 +614,22 @@ html.full .toolbar select.bar-opt { display: block; width: 100%; min-width: 0; h
 html.full .toolbar .bar-opt, html.full .toolbar .erase-opt { visibility: hidden; }
 html.full.barview .toolbar .bar-opt, html.full .toolbar #tool-erase.open .erase-opt { visibility: visible; }
 html.full .toolbar .tool-off { display: none !important; }
+
+/* icon colours: a tool with a colour (--tc) shows its icon in it; a tool that is switched on keeps its own contrast */
+html.full .toolbar [data-tc]:not([aria-pressed='true']):not(.active) { color: var(--tc); }
+.pchip[data-tc] { color: var(--tc); }
+#panel-colors { position: sticky; top: 0; z-index: 2; margin: 0 -14px 10px; padding: 8px 14px 10px; background: var(--card); border-bottom: 1px solid var(--line); }
+.pc-label { margin-bottom: 8px; font-size: 13px; font-weight: 600; }
+.swatches { display: flex; flex-wrap: wrap; gap: 10px; }
+.swatch { width: 34px; height: 34px; min-width: 34px; padding: 0; border-radius: 50%; border: 2px solid var(--line); }
+.swatch.current { box-shadow: 0 0 0 3px var(--card), 0 0 0 6px var(--accent); }
+.swatch.none { background: linear-gradient(to top right, transparent calc(50% - 1.5px), var(--muted) 50%, transparent calc(50% + 1.5px)), var(--card); }
+
+/* short screens: a more compact colour bar, and lighter panel notes */
+@media (max-height: 500px) {
+  #panel-colors { padding: 4px 14px 6px; margin-bottom: 6px; }
+  .pc-label { margin-bottom: 4px; font-size: 12px; }
+  .swatches { gap: 8px; flex-wrap: nowrap; overflow-x: auto; padding: 4px 4px 6px; }
+  .swatch { width: 30px; height: 30px; min-width: 30px; }
+  #panel-hint { margin: 4px 0 8px; font-size: 12px; }
+}

@@ -3,7 +3,7 @@ import {
   barIssues, barLength, beatsOf, diatonic, keySignature, emptyScore, endTime, timeline, formatPitch, fromDiatonic, hasSecondVoice, keyAlterations,
   parsePitch, startOf, stringifyScore, validateScore, voiceNotes,
 } from './score.js';
-import { DEFAULT_ORDER, REQUIRED, hiddenTools, normalizeOrder, placeTool, removeGaps, removeTool } from './panel.js';
+import { DEFAULT_ORDER, PALETTE, REQUIRED, hiddenTools, normalizeColors, normalizeOrder, placeTool, removeGaps, removeTool, withColor } from './panel.js';
 import { deleteBar, deleteNote, insertIndex, placeNote } from './edit.js';
 import { BAR_PAD_L, BAR_PAD_R, STEP, barAt, bottomDia, hitTest, layoutScore, renderScore } from './render.js';
 import { compare } from './checker.js';
@@ -18,7 +18,7 @@ const WHICH = ['original', 'mine'];
 const LABELS = { original: 'Original', mine: 'My notes' };
 const $ = (sel, root = document) => root.querySelector(sel);
 const clone = (x) => JSON.parse(JSON.stringify(x));
-const BUILD = '2026-11-15.3';
+const BUILD = '2026-11-15.4';
 const PIANO_W_MIN = 20; // narrowest / widest white key of the piano board (pinch changes it)
 const PIANO_W_MAX = 100;
 $('#build').textContent = `build ${BUILD}`;
@@ -42,7 +42,7 @@ function loadSaved() {
     const raw = JSON.parse(localStorage.getItem(STORE_KEY));
     const o = validateScore(raw?.original);
     const m = validateScore(raw?.mine);
-    if (o.ok && m.ok) return { original: o.score, mine: m.score, hideOriginal: !!raw.hideOriginal, lib: raw.lib, octave: raw.octave, zoom: raw.zoom, grid: raw.grid, piano: raw.piano, pianoW: raw.pianoW, pianoPos: raw.pianoPos, sound: raw.sound, panel: raw.panel };
+    if (o.ok && m.ok) return { original: o.score, mine: m.score, hideOriginal: !!raw.hideOriginal, lib: raw.lib, octave: raw.octave, zoom: raw.zoom, grid: raw.grid, piano: raw.piano, pianoW: raw.pianoW, pianoPos: raw.pianoPos, sound: raw.sound, panel: raw.panel, panelColors: raw.panelColors };
   } catch {}
   return null;
 }
@@ -70,6 +70,7 @@ const state = {
   pianoPos: Number.isFinite(saved?.pianoPos) ? saved.pianoPos : null, // where the keys were scrolled to, in white keys from the left (null: around middle C)
   sound: SOUNDS.some((s) => s.id === saved?.sound) ? saved.sound : 'recorded', // instrument (see SOUNDS in voices.js)
   panel: normalizeOrder(saved?.panel), // layout of the full-screen tool panel (see panel.js)
+  panelColors: normalizeColors(saved?.panelColors), // icon colour of tools on the panel: { toolId: '#rrggbb' }
   barView: false, // full screen: one bar fills the screen, split by dotted lines to put notes on
   barIndex: 0, // which bar the one-bar view shows (zero-based)
   grid: GRIDS.some(([k]) => k === saved?.grid) ? saved.grid : '4',
@@ -83,7 +84,7 @@ const layouts = { original: null, mine: null };
 
 function persist() {
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify({ original: state.original, mine: state.mine, hideOriginal: state.hideOriginal, lib: state.lib, octave: state.octave, zoom: state.zoom, grid: state.grid, piano: state.piano, pianoW: state.pianoW, pianoPos: state.pianoPos, sound: state.sound, panel: state.panel }));
+    localStorage.setItem(STORE_KEY, JSON.stringify({ original: state.original, mine: state.mine, hideOriginal: state.hideOriginal, lib: state.lib, octave: state.octave, zoom: state.zoom, grid: state.grid, piano: state.piano, pianoW: state.pianoW, pianoPos: state.pianoPos, sound: state.sound, panel: state.panel, panelColors: state.panelColors }));
   } catch {}
 }
 
@@ -1727,7 +1728,8 @@ bindNoteDrag();
 // In full screen the tools of the right-hand panel follow state.panel: a list of tool ids and null (an empty cell).
 // Each tool gets that position as its CSS `order`, a null becomes a gap cell, a tool that is not listed is hidden.
 // The settings button opens an editor: drag a tool (press and hold on a touch screen) to another cell, drop it on a
-// tool to swap, on an empty cell to leave a gap, on "hidden tools" to hide it. A tap picks a tool up as well.
+// tool to swap, on an empty cell to leave a gap, on "hidden tools" to hide it. A tap picks a tool up: it can then be
+// coloured, or moved into an empty cell (or hidden) with another tap.
 
 const PANEL_TOOLS = {
   'dur-w': '[data-dur="w"]', 'dur-h': '[data-dur="h"]', 'dur-q': '[data-dur="q"]', 'dur-e': '[data-dur="e"]', dot: '#tool-dot',
@@ -1756,6 +1758,18 @@ const toolEl = (id) => $(PANEL_TOOLS[id]);
 let panelPicked = null; // a tool picked up by a tap, waiting for a cell
 
 function applyPanel() {
+  for (const id of PANEL_IDS) {
+    const el = toolEl(id);
+    if (!el) continue;
+    const color = state.panelColors[id];
+    if (color) {
+      el.dataset.tc = '1';
+      el.style.setProperty('--tc', color);
+    } else {
+      delete el.dataset.tc;
+      el.style.removeProperty('--tc');
+    }
+  }
   for (const g of toolbarEl.querySelectorAll('.tool-gap')) g.remove();
   for (const id of PANEL_IDS) {
     const el = toolEl(id);
@@ -1780,10 +1794,12 @@ function panelChip(id) {
   const fixed = REQUIRED.includes(id) ? ' fixed' : '';
   const cond = PANEL_CONDITIONAL[id] ? ' cond' : '';
   const name = PANEL_NAMES[id] + (PANEL_CONDITIONAL[id] ? ` (only in the ${PANEL_CONDITIONAL[id]})`.replace('in the eraser on', 'while the eraser is on') : '');
-  return `<div class="pchip${panelPicked === id ? ' picked' : ''}${fixed}${cond}" data-tool="${id}" role="button" aria-label="${name}" title="${name}">${icon}</div>`;
+  const color = state.panelColors[id];
+  const tint = color ? ` data-tc="1" style="--tc: ${color}"` : '';
+  return `<div class="pchip${panelPicked === id ? ' picked' : ''}${fixed}${cond}" data-tool="${id}"${tint} role="button" aria-label="${name}" title="${name}">${icon}</div>`;
 }
 
-const PANEL_HINT = 'Press and hold a tool and drag it: onto a tool to swap, onto an empty cell to leave a gap, onto the hidden tools to hide it. Or tap a tool, then a cell.';
+const PANEL_HINT = 'Press and hold a tool and drag it: onto a tool to swap, onto an empty cell to leave a gap, onto the hidden tools to hide it. Or tap a tool to colour it or to move it into an empty cell.';
 
 function renderPanelEditor(hint = PANEL_HINT) {
   const cols = panelCols();
@@ -1798,7 +1814,16 @@ function renderPanelEditor(hint = PANEL_HINT) {
   $('#panel-grid').innerHTML = cells;
   const hidden = hiddenTools(order, PANEL_IDS);
   $('#panel-tray').innerHTML = hidden.length ? hidden.map(panelChip).join('') : '<span class="muted">Every tool is on the panel.</span>';
-  $('#panel-hint').textContent = panelPicked ? `${PANEL_NAMES[panelPicked]}: tap a cell to put it there (or the hidden tools to hide it).` : hint;
+  const bar = $('#panel-colors');
+  bar.hidden = !panelPicked;
+  if (panelPicked) {
+    const now = state.panelColors[panelPicked] ?? null;
+    $('.pc-label', bar).textContent = `Icon colour: ${PANEL_NAMES[panelPicked].replace(' (stays)', '')}`;
+    $('#panel-swatches').innerHTML =
+      `<button class="swatch none${now ? '' : ' current'}" data-color="" title="Default colour" aria-label="Default colour"></button>` +
+      PALETTE.map(([name, hex]) => `<button class="swatch${now === hex ? ' current' : ''}" data-color="${hex}" style="background: ${hex}" title="${name}" aria-label="${name}"></button>`).join('');
+  }
+  $('#panel-hint').textContent = panelPicked ? `${PANEL_NAMES[panelPicked]}: tap an empty cell to move it there (or the hidden tools to hide it), or choose its icon colour above.` : hint;
 }
 
 function commitPanel(order) {
@@ -1879,7 +1904,7 @@ function bindPanelEditor() {
     const zone = 56;
     const v = drag.py < box.top + zone ? -(1 - (drag.py - box.top) / zone) : drag.py > box.bottom - zone ? 1 - (box.bottom - drag.py) / zone : 0;
     if (v) {
-      body.scrollTop += Math.round(v * 14);
+      body.scrollTop += Math.sign(v) * Math.max(1, Math.round(v * v * 9)); // gentle at the start of the edge zone, faster right at the edge; up or down
       highlight();
     }
     drag.raf = requestAnimationFrame(autoScroll);
@@ -1922,10 +1947,8 @@ function bindPanelEditor() {
       if (target) moveTool(d.id, target);
       return;
     }
-    // a tap: pick the tool up, or put the picked one here (on a tool: they swap)
-    const at = state.panel.indexOf(d.id);
-    if (panelPicked && panelPicked !== d.id && at >= 0) moveTool(panelPicked, { cell: at });
-    else panelPicked = panelPicked === d.id ? null : d.id;
+    // a tap picks the tool up (it can then be coloured, or put in an empty cell); tapping it again puts it down
+    panelPicked = panelPicked === d.id ? null : d.id;
     renderPanelEditor();
   });
   window.addEventListener('pointercancel', () => endDrag());
@@ -1934,6 +1957,14 @@ function bindPanelEditor() {
   body.addEventListener('contextmenu', (e) => e.target.closest('.pchip') && e.preventDefault());
   // taps on an empty cell or on the hidden tools, with a tool picked up
   body.addEventListener('click', (e) => {
+    const swatch = e.target.closest('.swatch');
+    if (swatch && panelPicked) {
+      state.panelColors = withColor(state.panelColors, panelPicked, swatch.dataset.color || null);
+      persist();
+      applyPanel();
+      renderPanelEditor();
+      return;
+    }
     if (!panelPicked || e.target.closest('.pchip')) return;
     const cell = e.target.closest('#panel-grid .pcell');
     if (cell) moveTool(panelPicked, { cell: Number(cell.dataset.cell) });

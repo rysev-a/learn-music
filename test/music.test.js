@@ -8,7 +8,7 @@ import { LIBRARY, allExercises, setLibrary } from '../src/library.js';
 import { keyLayout, lookupKey, keyFromCode } from '../src/keyboard.js';
 import { pianoSamples, sampleName, SOUNDS, SOUND_GROUPS } from '../src/audio.js';
 import { renderVoice } from '../src/voices.js';
-import { DEFAULT_ORDER, REQUIRED, normalizeOrder, placeTool, removeTool, removeGaps, hiddenTools } from '../src/panel.js';
+import { DEFAULT_ORDER, PALETTE, REQUIRED, normalizeColors, normalizeOrder, placeTool, removeTool, removeGaps, hiddenTools, withColor } from '../src/panel.js';
 import { placeNote, insertIndex, deleteNote, restsFor, deleteBar } from '../src/edit.js';
 
 assert.ok(setLibrary(JSON.parse(readFileSync(new URL('../init.json', import.meta.url), 'utf8'))), 'init.json is a valid library');
@@ -358,4 +358,14 @@ test('tool panel layout: move, swap, gaps, hiding, and always a way out', () => 
   // the default has no repeats and has the required tools
   assert.equal(new Set(DEFAULT_ORDER).size, DEFAULT_ORDER.length);
   assert.ok(REQUIRED.every((id) => DEFAULT_ORDER.includes(id)));
+});
+
+test('tool icon colours: only known tools and #rrggbb survive, set and reset', () => {
+  assert.deepEqual(normalizeColors({ undo: '#E03131', nope: '#e03131', redo: 'red', play: '#12345', check: 5 }), { undo: '#e03131' });
+  assert.deepEqual(normalizeColors(null), {});
+  assert.deepEqual(normalizeColors(['#e03131']), {});
+  assert.deepEqual(withColor({}, 'undo', '#e03131'), { undo: '#e03131' });
+  assert.deepEqual(withColor({ undo: '#e03131', redo: '#2f9e44' }, 'undo', null), { redo: '#2f9e44' });
+  assert.ok(PALETTE.every(([name, hex]) => name && /^#[0-9a-f]{6}$/.test(hex)));
+  assert.equal(new Set(PALETTE.map((p) => p[1])).size, PALETTE.length);
 });
