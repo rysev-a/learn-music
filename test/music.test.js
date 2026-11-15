@@ -6,7 +6,7 @@ import { renderScore, hitTest, layoutScore, gridLines } from '../src/render.js';
 import { readFileSync } from 'node:fs';
 import { LIBRARY, allExercises, setLibrary } from '../src/library.js';
 import { keyLayout, lookupKey, keyFromCode } from '../src/keyboard.js';
-import { pianoSamples, sampleName, SOUNDS } from '../src/audio.js';
+import { pianoSamples, sampleName, SOUNDS, SOUND_GROUPS } from '../src/audio.js';
 import { renderVoice } from '../src/voices.js';
 import { placeNote, insertIndex, deleteNote, restsFor, deleteBar } from '../src/edit.js';
 
@@ -277,10 +277,18 @@ test('recorded piano: every key of A0..Db8 has a sample file, none outside', () 
   }
 });
 
-test('synthesized voices: finite, normalised, die away, and in tune', () => {
-  const ids = SOUNDS.filter((v) => v.id !== 'recorded').map((v) => v.id);
-  assert.equal(ids.length, 10);
-  const rate = 8000;
+test('sound menu: 50 sounds in groups, unique ids and names', () => {
+  assert.equal(SOUNDS.length, 50);
+  assert.ok(SOUND_GROUPS.length >= 6 && SOUND_GROUPS.every((g) => g.name && g.sounds.length >= 4));
+  assert.equal(new Set(SOUNDS.map((v) => v.id)).size, 50);
+  assert.equal(new Set(SOUNDS.map((v) => v.name)).size, 50);
+  assert.equal(SOUNDS[0].id, 'recorded');
+});
+
+test('synthesized voices: finite, normalised, in range, die away (or hold), and in tune', () => {
+  const synthesized = SOUNDS.filter((v) => v.id !== 'recorded');
+  assert.equal(synthesized.length, 49);
+  const baseRate = 8000;
   const rms = (x, from, to) => Math.sqrt(x.slice(from, to).reduce((a, v) => a + v * v, 0) / (to - from));
   // strongest repeat of the waveform: the period, compared with the one expected
   const period = (x, lo, hi) => {
@@ -293,26 +301,33 @@ test('synthesized voices: finite, normalised, die away, and in tune', () => {
     }
     return best;
   };
-  for (const id of ids) {
+  const failures = [];
+  for (const v of synthesized) {
+    const rate = baseRate / (v.div ?? 1);
     for (const m of [45, 60, 84]) {
-      const x = renderVoice(id, m, rate);
-      assert.ok(x.length > rate * 0.5 && x.length < rate * 7, `${id} ${m}: length ${x.length}`);
-      assert.ok(x.every(Number.isFinite), `${id} ${m}: finite`);
-      const peak = x.reduce((a, v) => Math.max(a, Math.abs(v)), 0);
-      assert.ok(Math.abs(peak - 0.9) < 1e-3, `${id} ${m}: peak ${peak}`);
-      assert.ok(rms(x, 0, 800) > 0.02, `${id} ${m}: sounds at the start`);
-      assert.ok(Math.abs(x[x.length - 1]) < 1e-3, `${id} ${m}: ends at zero (no click)`);
+      const x = renderVoice(v.id, m, rate);
+      const tag = `${v.id} ${m}`;
+      if (!(x.length > rate * 0.5 && x.length < rate * 7)) failures.push(`${tag}: length ${x.length}`);
+      if (!x.every(Number.isFinite)) failures.push(`${tag}: not finite`);
+      const peak = x.reduce((a, q) => Math.max(a, Math.abs(q)), 0);
+      if (Math.abs(peak - 0.9) > 1e-3) failures.push(`${tag}: peak ${peak}`);
+      if (!(rms(x, 0, rate) > 0.02)) failures.push(`${tag}: silent in the first second`);
+      if (!(Math.abs(x[x.length - 1]) < 1e-3)) failures.push(`${tag}: does not end at zero`);
       const mid = Math.floor(x.length * 0.6);
-      assert.ok(rms(x, mid, mid + 800) < rms(x, 0, 800), `${id} ${m}: dies away`);
+      if (!v.sustained && !(rms(x, mid, mid + rate / 2) < rms(x, 0, rate / 2))) failures.push(`${tag}: does not die away`);
     }
   }
-  // tuned: A3 (220 Hz) and A4 (440 Hz); the bell / bar voices have no single pitch to follow
-  for (const id of ['additive', 'felt', 'honky', 'ep', 'wurli', 'ks', 'harpsi']) {
+  assert.deepEqual(failures, []);
+  // tuned: A3 (220 Hz) and A4 (440 Hz), for everything that has a pitch to follow (not bells and bars)
+  const tuned = [];
+  for (const v of synthesized.filter((q) => !q.unpitched)) {
+    const rate = baseRate / (v.div ?? 1);
     for (const [m, f] of [[57, 220], [69, 440]]) {
       const expected = rate / f;
-      const got = period(renderVoice(id, m, rate), Math.floor(expected * 0.7), Math.ceil(expected * 1.3));
+      const got = period(renderVoice(v.id, m, rate), Math.floor(expected * 0.7), Math.ceil(expected * 1.3));
       const multiple = Math.round(got / expected);
-      assert.ok(multiple >= 1 && Math.abs(got / multiple - expected) / expected < 0.03, `${id} at ${f} Hz: period ${got}, expected ${expected}`);
+      if (!(multiple >= 1 && Math.abs(got / multiple - expected) / expected < 0.03)) tuned.push(`${v.id} at ${f} Hz: period ${got}, expected ${expected}`);
     }
   }
+  assert.deepEqual(tuned, []);
 });
