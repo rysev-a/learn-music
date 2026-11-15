@@ -3,6 +3,7 @@ import {
   barIssues, barLength, beatsOf, diatonic, keySignature, emptyScore, endTime, timeline, formatPitch, fromDiatonic, hasSecondVoice, keyAlterations,
   parsePitch, startOf, stringifyScore, validateScore, voiceNotes,
 } from './score.js';
+import { DEFAULT_ORDER, REQUIRED, hiddenTools, normalizeOrder, placeTool, removeGaps, removeTool } from './panel.js';
 import { deleteBar, deleteNote, insertIndex, placeNote } from './edit.js';
 import { BAR_PAD_L, BAR_PAD_R, STEP, barAt, bottomDia, hitTest, layoutScore, renderScore } from './render.js';
 import { compare } from './checker.js';
@@ -17,7 +18,7 @@ const WHICH = ['original', 'mine'];
 const LABELS = { original: 'Original', mine: 'My notes' };
 const $ = (sel, root = document) => root.querySelector(sel);
 const clone = (x) => JSON.parse(JSON.stringify(x));
-const BUILD = '2026-11-15.1';
+const BUILD = '2026-11-15.2';
 const PIANO_W_MIN = 20; // narrowest / widest white key of the piano board (pinch changes it)
 const PIANO_W_MAX = 100;
 $('#build').textContent = `build ${BUILD}`;
@@ -41,7 +42,7 @@ function loadSaved() {
     const raw = JSON.parse(localStorage.getItem(STORE_KEY));
     const o = validateScore(raw?.original);
     const m = validateScore(raw?.mine);
-    if (o.ok && m.ok) return { original: o.score, mine: m.score, hideOriginal: !!raw.hideOriginal, lib: raw.lib, octave: raw.octave, zoom: raw.zoom, grid: raw.grid, piano: raw.piano, pianoW: raw.pianoW, pianoPos: raw.pianoPos, sound: raw.sound };
+    if (o.ok && m.ok) return { original: o.score, mine: m.score, hideOriginal: !!raw.hideOriginal, lib: raw.lib, octave: raw.octave, zoom: raw.zoom, grid: raw.grid, piano: raw.piano, pianoW: raw.pianoW, pianoPos: raw.pianoPos, sound: raw.sound, panel: raw.panel };
   } catch {}
   return null;
 }
@@ -68,6 +69,7 @@ const state = {
   pianoW: Number.isFinite(saved?.pianoW) ? clamp(saved.pianoW, PIANO_W_MIN, PIANO_W_MAX) : 40, // width of a white key in px
   pianoPos: Number.isFinite(saved?.pianoPos) ? saved.pianoPos : null, // where the keys were scrolled to, in white keys from the left (null: around middle C)
   sound: SOUNDS.some((s) => s.id === saved?.sound) ? saved.sound : 'recorded', // instrument (see SOUNDS in voices.js)
+  panel: normalizeOrder(saved?.panel), // layout of the full-screen tool panel (see panel.js)
   barView: false, // full screen: one bar fills the screen, split by dotted lines to put notes on
   barIndex: 0, // which bar the one-bar view shows (zero-based)
   grid: GRIDS.some(([k]) => k === saved?.grid) ? saved.grid : '4',
@@ -81,7 +83,7 @@ const layouts = { original: null, mine: null };
 
 function persist() {
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify({ original: state.original, mine: state.mine, hideOriginal: state.hideOriginal, lib: state.lib, octave: state.octave, zoom: state.zoom, grid: state.grid, piano: state.piano, pianoW: state.pianoW, pianoPos: state.pianoPos, sound: state.sound }));
+    localStorage.setItem(STORE_KEY, JSON.stringify({ original: state.original, mine: state.mine, hideOriginal: state.hideOriginal, lib: state.lib, octave: state.octave, zoom: state.zoom, grid: state.grid, piano: state.piano, pianoW: state.pianoW, pianoPos: state.pianoPos, sound: state.sound, panel: state.panel }));
   } catch {}
 }
 
@@ -1720,6 +1722,228 @@ function bindNoteDrag() {
 }
 bindNoteDrag();
 
+
+// ---------- tool panel layout ----------
+// In full screen the tools of the right-hand panel follow state.panel: a list of tool ids and null (an empty cell).
+// Each tool gets that position as its CSS `order`, a null becomes a gap cell, a tool that is not listed is hidden.
+// The settings button opens an editor: drag a tool (press and hold on a touch screen) to another cell, drop it on a
+// tool to swap, on an empty cell to leave a gap, on "hidden tools" to hide it. A tap picks a tool up as well.
+
+const PANEL_TOOLS = {
+  'dur-w': '[data-dur="w"]', 'dur-h': '[data-dur="h"]', 'dur-q': '[data-dur="q"]', 'dur-e': '[data-dur="e"]', dot: '#tool-dot',
+  'acc-#': '[data-acc="#"]', 'acc-b': '[data-acc="b"]', 'acc-n': '[data-acc="n"]',
+  'voice-1': '[data-voice="1"]', 'voice-2': '[data-voice="2"]', rest: '#tool-rest',
+  piano: '#piano-toggle', sound: '#sound-open',
+  erase: '#erase', 'erase-note': '[data-erase="note"]', 'erase-bar': '[data-erase="bar"]',
+  undo: '#undo', redo: '#redo', check: '#check',
+  play: '#full-play', 'zoom-out': '#full-zoom-out', 'zoom-in': '#full-zoom-in', 'bar-mode': '#bar-mode', pin: '#board-pin',
+  settings: '#panel-settings', exit: '#full-exit',
+  'bar-prev': '#bar-prev', 'bar-label': '#bar-label', 'bar-next': '#bar-next', 'grid-size': '#grid-size',
+};
+const PANEL_NAMES = {
+  'dur-w': 'Whole note', 'dur-h': 'Half note', 'dur-q': 'Quarter note', 'dur-e': 'Eighth note', dot: 'Dotted',
+  'acc-#': 'Sharp', 'acc-b': 'Flat', 'acc-n': 'Natural', 'voice-1': 'Voice 1', 'voice-2': 'Voice 2', rest: 'Rest',
+  piano: 'Piano keys', sound: 'Sound', erase: 'Eraser', 'erase-note': 'Erase a note', 'erase-bar': 'Erase a bar',
+  undo: 'Undo', redo: 'Redo', check: 'Check', play: 'Play', 'zoom-out': 'Smaller notes', 'zoom-in': 'Larger notes',
+  'bar-mode': 'One-bar view', pin: 'Fix position and zoom', settings: 'Panel layout (stays)', exit: 'Leave full screen (stays)',
+  'bar-prev': 'Previous bar', 'bar-label': 'Bar number', 'bar-next': 'Next bar', 'grid-size': 'Split size',
+};
+const PANEL_IDS = Object.keys(PANEL_TOOLS);
+// these show only when they apply (the one-bar view, the eraser being on) and take no room otherwise
+const PANEL_CONDITIONAL = { 'bar-prev': 'one-bar view', 'bar-label': 'one-bar view', 'bar-next': 'one-bar view', 'grid-size': 'one-bar view', 'erase-note': 'eraser on', 'erase-bar': 'eraser on' };
+const panelCols = () => (matchMedia('(orientation: landscape)').matches ? 3 : 2); // as the CSS of the panel
+const toolEl = (id) => $(PANEL_TOOLS[id]);
+let panelPicked = null; // a tool picked up by a tap, waiting for a cell
+
+function applyPanel() {
+  for (const g of toolbarEl.querySelectorAll('.tool-gap')) g.remove();
+  for (const id of PANEL_IDS) {
+    const el = toolEl(id);
+    if (!el) continue;
+    el.style.order = '';
+    el.classList.remove('tool-off');
+  }
+  if (!state.full) return; // the normal toolbar keeps its own layout
+  state.panel.forEach((id, i) => {
+    if (id === null) {
+      const gap = document.createElement('div');
+      gap.className = 'tool-gap';
+      gap.style.order = i;
+      toolbarEl.append(gap);
+    } else if (toolEl(id)) toolEl(id).style.order = i;
+  });
+  for (const id of hiddenTools(state.panel, PANEL_IDS)) toolEl(id)?.classList.add('tool-off');
+}
+
+function panelChip(id) {
+  const icon = id === 'sound' ? '&#9834;' : id === 'grid-size' ? GRIDS.find(([k]) => k === state.grid)?.[1] : id === 'bar-label' ? 'n/N' : (toolEl(id)?.innerHTML ?? id);
+  const fixed = REQUIRED.includes(id) ? ' fixed' : '';
+  const cond = PANEL_CONDITIONAL[id] ? ' cond' : '';
+  const name = PANEL_NAMES[id] + (PANEL_CONDITIONAL[id] ? ` (only in the ${PANEL_CONDITIONAL[id]})`.replace('in the eraser on', 'while the eraser is on') : '');
+  return `<div class="pchip${panelPicked === id ? ' picked' : ''}${fixed}${cond}" data-tool="${id}" role="button" aria-label="${name}" title="${name}">${icon}</div>`;
+}
+
+const PANEL_HINT = 'Press and hold a tool and drag it: onto a tool to swap, onto an empty cell to leave a gap, onto the hidden tools to hide it. Or tap a tool, then a cell.';
+
+function renderPanelEditor(hint = PANEL_HINT) {
+  const cols = panelCols();
+  const order = state.panel;
+  const rows = Math.max(4, Math.ceil(order.length / cols) + 1);
+  let cells = '';
+  for (let i = 0; i < rows * cols; i++) {
+    const id = order[i] ?? null;
+    cells += `<div class="pcell${id ? '' : ' empty'}" data-cell="${i}">${id ? panelChip(id) : ''}</div>`;
+  }
+  $('#panel-grid').style.setProperty('--cols', cols);
+  $('#panel-grid').innerHTML = cells;
+  const hidden = hiddenTools(order, PANEL_IDS);
+  $('#panel-tray').innerHTML = hidden.length ? hidden.map(panelChip).join('') : '<span class="muted">Every tool is on the panel.</span>';
+  $('#panel-hint').textContent = panelPicked ? `${PANEL_NAMES[panelPicked]}: tap a cell to put it there (or the hidden tools to hide it).` : hint;
+}
+
+function commitPanel(order) {
+  state.panel = normalizeOrder(order);
+  panelPicked = null;
+  persist();
+  applyPanel();
+  renderPanelEditor();
+}
+
+function openPanelModal() {
+  panelPicked = null;
+  renderPanelEditor();
+  $('#panel-modal').hidden = false;
+  document.body.classList.add('modal-open');
+}
+
+function closePanelModal() {
+  $('#panel-modal').hidden = true;
+  document.body.classList.remove('modal-open');
+  panelPicked = null;
+}
+
+function bindPanelEditor() {
+  $('#panel-settings').addEventListener('click', openPanelModal);
+  $('#panel-close').addEventListener('click', closePanelModal);
+  $('#panel-reset').addEventListener('click', () => commitPanel([...DEFAULT_ORDER]));
+  $('#panel-tidy').addEventListener('click', () => commitPanel(removeGaps(state.panel)));
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !$('#panel-modal').hidden) closePanelModal();
+  });
+  const modal = $('#panel-modal');
+  const body = $('#panel-body');
+
+  // where a tool would land: a cell of the panel, or the hidden tools
+  const targetAt = (x, y) => {
+    const el = document.elementFromPoint(x, y);
+    const cell = el?.closest('#panel-grid .pcell');
+    if (cell) return { cell: Number(cell.dataset.cell), el: cell };
+    const tray = el?.closest('#panel-tray');
+    return tray ? { tray: true, el: tray } : null;
+  };
+  const moveTool = (id, target) => {
+    if (target.tray) {
+      if (REQUIRED.includes(id)) {
+        panelPicked = null;
+        return renderPanelEditor(`${PANEL_NAMES[id].replace(' (stays)', '')} has to stay on the panel: it is the way back.`);
+      }
+      return commitPanel(removeTool(state.panel, id));
+    }
+    commitPanel(placeTool(state.panel, id, target.cell));
+  };
+
+  // drag: press and hold (a touch) or move (a mouse), then follow the finger
+  let drag = null;
+  const startDrag = () => {
+    if (!drag) return;
+    drag.active = true;
+    drag.chip.classList.add('dragging');
+    drag.ghost = drag.chip.cloneNode(true);
+    drag.ghost.className = 'pchip pghost';
+    document.body.append(drag.ghost);
+    drag.ghost.style.left = `${drag.x}px`;
+    drag.ghost.style.top = `${drag.y}px`;
+    drag.px = drag.x;
+    drag.py = drag.y;
+    drag.raf = requestAnimationFrame(autoScroll);
+    navigator.vibrate?.(8);
+  };
+  const highlight = () => {
+    for (const o of modal.querySelectorAll('.over')) o.classList.remove('over');
+    if (drag?.active) targetAt(drag.px, drag.py)?.el.classList.add('over');
+  };
+  // near the top or bottom edge of the list it scrolls by itself, so a tool can be taken to a cell that is out of sight
+  const autoScroll = () => {
+    if (!drag?.active) return;
+    const box = body.getBoundingClientRect();
+    const zone = 56;
+    const v = drag.py < box.top + zone ? -(1 - (drag.py - box.top) / zone) : drag.py > box.bottom - zone ? 1 - (box.bottom - drag.py) / zone : 0;
+    if (v) {
+      body.scrollTop += Math.round(v * 14);
+      highlight();
+    }
+    drag.raf = requestAnimationFrame(autoScroll);
+  };
+  const endDrag = () => {
+    if (!drag) return;
+    cancelAnimationFrame(drag.raf);
+    clearTimeout(drag.timer);
+    drag.ghost?.remove();
+    drag.chip.classList.remove('dragging');
+    for (const o of modal.querySelectorAll('.over')) o.classList.remove('over');
+    drag = null;
+  };
+  body.addEventListener('pointerdown', (e) => {
+    const chip = e.target.closest('.pchip');
+    if (!chip || drag) return;
+    drag = { id: chip.dataset.tool, chip, x: e.clientX, y: e.clientY, pid: e.pointerId, active: false, touch: e.pointerType !== 'mouse', ghost: null, timer: 0 };
+    if (drag.touch) drag.timer = setTimeout(startDrag, 230);
+  });
+  window.addEventListener('pointermove', (e) => {
+    if (!drag || e.pointerId !== drag.pid) return;
+    if (!drag.active) {
+      const far = Math.hypot(e.clientX - drag.x, e.clientY - drag.y);
+      if (drag.touch && far > 10) endDrag(); // it is a scroll, not a drag
+      else if (!drag.touch && far > 5) startDrag();
+      return;
+    }
+    drag.ghost.style.left = `${e.clientX}px`;
+    drag.ghost.style.top = `${e.clientY}px`;
+    drag.px = e.clientX;
+    drag.py = e.clientY;
+    highlight();
+  });
+  window.addEventListener('pointerup', (e) => {
+    if (!drag || e.pointerId !== drag.pid) return;
+    const d = drag;
+    const target = d.active ? targetAt(e.clientX, e.clientY) : null;
+    endDrag();
+    if (d.active) {
+      if (target) moveTool(d.id, target);
+      return;
+    }
+    // a tap: pick the tool up, or put the picked one here (on a tool: they swap)
+    const at = state.panel.indexOf(d.id);
+    if (panelPicked && panelPicked !== d.id && at >= 0) moveTool(panelPicked, { cell: at });
+    else panelPicked = panelPicked === d.id ? null : d.id;
+    renderPanelEditor();
+  });
+  window.addEventListener('pointercancel', () => endDrag());
+  // a drag must not scroll the list (this only works before the scroll has started, hence the press and hold)
+  body.addEventListener('touchmove', (e) => drag?.active && e.preventDefault(), { passive: false });
+  body.addEventListener('contextmenu', (e) => e.target.closest('.pchip') && e.preventDefault());
+  // taps on an empty cell or on the hidden tools, with a tool picked up
+  body.addEventListener('click', (e) => {
+    if (!panelPicked || e.target.closest('.pchip')) return;
+    const cell = e.target.closest('#panel-grid .pcell');
+    if (cell) moveTool(panelPicked, { cell: Number(cell.dataset.cell) });
+    else if (e.target.closest('#panel-tray')) moveTool(panelPicked, { tray: true });
+  });
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) closePanelModal(); // the backdrop
+  });
+}
+
 /** Full screen: only the staves (an endless canvas to drag and scale) and the tools in a column on the right. */
 function setFull(on) {
   state.full = on;
@@ -1729,6 +1953,7 @@ function setFull(on) {
   else $('header', cards.mine.root).after(toolbarEl);
   $('#cards').style.transform = '';
   if (on) Object.assign(board, { x: 8, y: 20 });
+  applyPanel();
   if (on) document.documentElement.requestFullscreen?.().catch(() => {});
   else if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   render();
@@ -1752,6 +1977,7 @@ new ResizeObserver(() => {
 }).observe($('#cards'));
 
 buildCards();
+bindPanelEditor();
 setSound(state.sound);
 setTimeout(warmUp, 600);
 buildLibrary();
