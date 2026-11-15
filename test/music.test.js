@@ -6,9 +6,10 @@ import { renderScore, hitTest, layoutScore, gridLines } from '../src/render.js';
 import { readFileSync } from 'node:fs';
 import { LIBRARY, allExercises, setLibrary } from '../src/library.js';
 import { keyLayout, lookupKey, keyFromCode } from '../src/keyboard.js';
+import { MAX_FAVORITES, TEMPO_DEFAULT, addFav, clampTempo, normalizeFavs, removeFav, tempoName } from '../src/tempo.js';
 import { pianoSamples, sampleName, SOUNDS, SOUND_GROUPS } from '../src/audio.js';
 import { renderVoice } from '../src/voices.js';
-import { DEFAULT_ORDER, REQUIRED, normalizeOrder, placeTool, removeTool, removeGaps, hiddenTools } from '../src/panel.js';
+import { LEGACY_TOOLS, addNewTools, DEFAULT_ORDER, PALETTE, REQUIRED, normalizeColors, normalizeOrder, placeTool, removeTool, removeGaps, hiddenTools, withColor } from '../src/panel.js';
 import { placeNote, insertIndex, deleteNote, restsFor, deleteBar } from '../src/edit.js';
 
 assert.ok(setLibrary(JSON.parse(readFileSync(new URL('../init.json', import.meta.url), 'utf8'))), 'init.json is a valid library');
@@ -358,4 +359,82 @@ test('tool panel layout: move, swap, gaps, hiding, and always a way out', () => 
   // the default has no repeats and has the required tools
   assert.equal(new Set(DEFAULT_ORDER).size, DEFAULT_ORDER.length);
   assert.ok(REQUIRED.every((id) => DEFAULT_ORDER.includes(id)));
+});
+
+test('tool icon colours: only known tools and #rrggbb survive, set and reset', () => {
+  assert.deepEqual(normalizeColors({ undo: '#E03131', nope: '#e03131', redo: 'red', play: '#12345', check: 5 }), { undo: '#e03131' });
+  assert.deepEqual(normalizeColors(null), {});
+  assert.deepEqual(normalizeColors(['#e03131']), {});
+  assert.deepEqual(withColor({}, 'undo', '#e03131'), { undo: '#e03131' });
+  assert.deepEqual(withColor({ undo: '#e03131', redo: '#2f9e44' }, 'undo', null), { redo: '#2f9e44' });
+  assert.ok(PALETTE.every(([name, hex]) => name && /^#[0-9a-f]{6}$/.test(hex)));
+  assert.equal(new Set(PALETTE.map((p) => p[1])).size, PALETTE.length);
+});
+
+test('speed: limits, favourites, names', () => {
+  assert.equal(TEMPO_DEFAULT, 120);
+  assert.equal(clampTempo(120.4), 120);
+  assert.equal(clampTempo(5), 20);
+  assert.equal(clampTempo(999), 300);
+  assert.equal(clampTempo('abc'), 120);
+  assert.equal(clampTempo(null), 120);
+  assert.deepEqual(normalizeFavs([90, 60, 90, 'x', 2.5, 5, 400, 120]), [60, 90, 120]);
+  assert.deepEqual(normalizeFavs('nope'), []);
+  assert.deepEqual(addFav([60, 120], 90), [60, 90, 120]);
+  assert.deepEqual(addFav([60, 120], 120), [60, 120]);
+  assert.deepEqual(removeFav([60, 90, 120], 90), [60, 120]);
+  const full = Array.from({ length: MAX_FAVORITES }, (_, i) => 40 + i);
+  assert.deepEqual(addFav(full, 200), full, 'a full list does not grow');
+  assert.equal(tempoName(40), 'Grave');
+  assert.equal(tempoName(120), 'Allegro');
+  assert.equal(tempoName(200), 'Presto');
+});
+
+test('tool panel: a tool added later joins a saved layout, unless it was hidden on purpose', () => {
+  assert.ok(!LEGACY_TOOLS.includes('tempo') && DEFAULT_ORDER.includes('tempo'));
+  // a layout saved before the speed tool: it gets the first empty cell
+  const saved = ['dur-w', null, 'dur-h', 'settings', 'exit'];
+  const r = addNewTools(saved, LEGACY_TOOLS);
+  assert.deepEqual(r.order, ['dur-w', 'tempo', 'dur-h', 'settings', 'exit']);
+  assert.ok(r.seen.includes('tempo'));
+  // no empty cell: at the end
+  assert.deepEqual(addNewTools(['dur-w', 'exit'], LEGACY_TOOLS).order, ['dur-w', 'exit', 'tempo']);
+  // already known (the user hid it): it stays hidden
+  assert.deepEqual(addNewTools(['dur-w', 'exit'], DEFAULT_ORDER).order, ['dur-w', 'exit']);
+  // nothing new: nothing changes
+  assert.deepEqual(addNewTools(saved, DEFAULT_ORDER).order, saved);
+});
+
+test('second voice: padding before a late note is invisible, stays padding when cut, and is saved', () => {
+  const v2 = [];
+  const idx = placeNote(v2, 8, q('C3'), true); // two bars in, nothing before it
+  assert.equal(idx, v2.length - 1);
+  assert.ok(v2.slice(0, idx).every((n) => n.pitch === 'r' && n.pad === true), 'the gap is padding');
+  assert.equal(v2.slice(0, idx).reduce((a, n) => a + (n.dur === 'w' ? 4 : n.dur === 'h' ? 2 : n.dur === 'q' ? 1 : 0.5) * (n.dot ? 1.5 : 1), 0), 8);
+
+  // it is not drawn and cannot be hit: only the real note has a handle
+  const s = score(Array.from({ length: 12 }, () => q('E4')), { time: '4/4' });
+  s.voice2 = v2;
+  const { svg } = renderScore(s, { width: 900 });
+  assert.equal((svg.match(/data-v="2"/g) ?? []).length, 1);
+  assert.ok(svg.includes(`data-v="2" data-i="${idx}"`));
+
+  // a real note over a piece of padding leaves padding on both sides, not visible rests
+  const cut = [{ pitch: 'r', dur: 'w', pad: true }, { pitch: 'r', dur: 'w', pad: true }];
+  placeNote(cut, 1, q('G3'), true);
+  assert.ok(cut.filter((n) => n.pitch === 'r').every((n) => n.pad === true));
+  assert.equal(cut.filter((n) => n.pitch !== 'r').length, 1);
+
+  // an ordinary rest stays visible, and a deleted note in the second voice leaves padding
+  const mixed = [{ pitch: 'r', dur: 'q' }, q('C3'), q('D3')];
+  deleteNote(mixed, 1, true);
+  assert.deepEqual(mixed[1], { pitch: 'r', dur: 'q', pad: true });
+  assert.equal(mixed[0].pad, undefined);
+
+  // saved and loaded: the flag survives, and only on rests
+  const text = stringifyScore({ ...s, voice2: [{ pitch: 'r', dur: 'w', pad: true }, q('C3')] });
+  const back = validateScore(JSON.parse(text)).score;
+  assert.equal(back.voice2[0].pad, true);
+  assert.equal(back.voice2[1].pad, undefined);
+  assert.equal(validateScore({ notes: [{ pitch: 'C4', dur: 'q', pad: true }] }).score.notes[0].pad, undefined, 'a note cannot be padding');
 });

@@ -3,7 +3,8 @@ import {
   barIssues, barLength, beatsOf, diatonic, keySignature, emptyScore, endTime, timeline, formatPitch, fromDiatonic, hasSecondVoice, keyAlterations,
   parsePitch, startOf, stringifyScore, validateScore, voiceNotes,
 } from './score.js';
-import { DEFAULT_ORDER, REQUIRED, hiddenTools, normalizeOrder, placeTool, removeGaps, removeTool } from './panel.js';
+import { DEFAULT_ORDER, LEGACY_TOOLS, PALETTE, REQUIRED, addNewTools, hiddenTools, normalizeColors, normalizeOrder, placeTool, removeGaps, removeTool, withColor } from './panel.js';
+import { TEMPO_DEFAULT, TEMPO_MAX, TEMPO_MIN, addFav, clampTempo, hasFav, normalizeFavs, removeFav, tempoName } from './tempo.js';
 import { deleteBar, deleteNote, insertIndex, placeNote } from './edit.js';
 import { BAR_PAD_L, BAR_PAD_R, STEP, barAt, bottomDia, hitTest, layoutScore, renderScore } from './render.js';
 import { compare } from './checker.js';
@@ -18,7 +19,7 @@ const WHICH = ['original', 'mine'];
 const LABELS = { original: 'Original', mine: 'My notes' };
 const $ = (sel, root = document) => root.querySelector(sel);
 const clone = (x) => JSON.parse(JSON.stringify(x));
-const BUILD = '2026-11-15.3';
+const BUILD = '2026-11-15.6';
 const PIANO_W_MIN = 20; // narrowest / widest white key of the piano board (pinch changes it)
 const PIANO_W_MAX = 100;
 $('#build').textContent = `build ${BUILD}`;
@@ -42,15 +43,15 @@ function loadSaved() {
     const raw = JSON.parse(localStorage.getItem(STORE_KEY));
     const o = validateScore(raw?.original);
     const m = validateScore(raw?.mine);
-    if (o.ok && m.ok) return { original: o.score, mine: m.score, hideOriginal: !!raw.hideOriginal, lib: raw.lib, octave: raw.octave, zoom: raw.zoom, grid: raw.grid, piano: raw.piano, pianoW: raw.pianoW, pianoPos: raw.pianoPos, sound: raw.sound, panel: raw.panel };
+    if (o.ok && m.ok) return { original: o.score, mine: m.score, hideOriginal: !!raw.hideOriginal, lib: raw.lib, octave: raw.octave, zoom: raw.zoom, grid: raw.grid, piano: raw.piano, pianoW: raw.pianoW, pianoPos: raw.pianoPos, sound: raw.sound, panel: raw.panel, panelColors: raw.panelColors, panelSeen: raw.panelSeen, tempoFavs: raw.tempoFavs };
   } catch {}
   return null;
 }
 
 const saved = loadSaved();
 const state = {
-  original: saved?.original ?? clone(LIBRARY[0].exercises[0].score),
-  mine: saved?.mine ?? emptyScore({ title: 'My notes' }),
+  original: saved?.original ?? { ...clone(LIBRARY[0].exercises[0].score), tempo: TEMPO_DEFAULT },
+  mine: saved?.mine ?? emptyScore({ title: 'My notes', tempo: TEMPO_DEFAULT }),
   hideOriginal: saved?.hideOriginal ?? false,
   zoom: Number.isFinite(saved?.zoom) ? clamp(saved.zoom, ZOOM_MIN, ZOOM_MAX) : innerWidth < 640 ? 0.65 : 1, // scale of the notes: the staff is laid out at width / zoom
   lib: validLib(saved?.lib), // which piece / exercise of the library the Original came from
@@ -70,6 +71,9 @@ const state = {
   pianoPos: Number.isFinite(saved?.pianoPos) ? saved.pianoPos : null, // where the keys were scrolled to, in white keys from the left (null: around middle C)
   sound: SOUNDS.some((s) => s.id === saved?.sound) ? saved.sound : 'recorded', // instrument (see SOUNDS in voices.js)
   panel: normalizeOrder(saved?.panel), // layout of the full-screen tool panel (see panel.js)
+  panelColors: normalizeColors(saved?.panelColors), // icon colour of tools on the panel: { toolId: '#rrggbb' }
+  panelSeen: [], // the tools this layout already knew about (so a tool hidden on purpose stays hidden, a new one is added)
+  tempoFavs: normalizeFavs(saved?.tempoFavs), // favourite speeds (BPM)
   barView: false, // full screen: one bar fills the screen, split by dotted lines to put notes on
   barIndex: 0, // which bar the one-bar view shows (zero-based)
   grid: GRIDS.some(([k]) => k === saved?.grid) ? saved.grid : '4',
@@ -79,11 +83,19 @@ const state = {
   result: null,
   playing: null, // { which, stop }
 };
+{
+  const seen = Array.isArray(saved?.panelSeen) ? saved.panelSeen : saved?.panel ? LEGACY_TOOLS : DEFAULT_ORDER;
+  const joined = addNewTools(state.panel, seen);
+  const changed = JSON.stringify(joined.order) !== JSON.stringify(state.panel) || !Array.isArray(saved?.panelSeen);
+  state.panel = joined.order;
+  state.panelSeen = joined.seen;
+  if (changed && saved) queueMicrotask(() => persist()); // write the migrated layout back (persist is defined further down)
+}
 const layouts = { original: null, mine: null };
 
 function persist() {
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify({ original: state.original, mine: state.mine, hideOriginal: state.hideOriginal, lib: state.lib, octave: state.octave, zoom: state.zoom, grid: state.grid, piano: state.piano, pianoW: state.pianoW, pianoPos: state.pianoPos, sound: state.sound, panel: state.panel }));
+    localStorage.setItem(STORE_KEY, JSON.stringify({ original: state.original, mine: state.mine, hideOriginal: state.hideOriginal, lib: state.lib, octave: state.octave, zoom: state.zoom, grid: state.grid, piano: state.piano, pianoW: state.pianoW, pianoPos: state.pianoPos, sound: state.sound, panel: state.panel, panelColors: state.panelColors, panelSeen: state.panelSeen, tempoFavs: state.tempoFavs }));
   } catch {}
 }
 
@@ -203,14 +215,35 @@ function afterEnter(which, voice, index, insert = false) {
   state.cursor = voice === 1 && t >= endTime(state[which].notes) - EPS ? null : { voice, t, ...(insert && { insert: true }) };
 }
 
+/**
+ * The time the user is working at: in the one-bar view the bar on the screen (the cursor if it is in that bar, else its
+ * start), otherwise the cursor, or the end of the first voice. Switching voice keeps the user here, not at the start.
+ */
+function focusTime(which) {
+  if (state.full && state.barView) {
+    const L = barLength(state[which]);
+    const from = state.barIndex * L;
+    const t = state.cursor?.t;
+    return t !== undefined && t >= from - EPS && t < from + L - EPS ? t : from;
+  }
+  if (state.full && !state.cursor && !state.selected && layouts[which]?.slots.length) {
+    // the scrolling board with nothing picked: the bar in the middle of the screen
+    const wx = (boardView().w / 2 - board.x) / state.zoom;
+    const nearest = layouts[which].slots.reduce((b, sl) => (Math.abs(sl.x - wx) < Math.abs(b.x - wx) ? sl : b));
+    const L = barLength(state[which]);
+    return Math.floor(nearest.t / L + EPS) * L;
+  }
+  return cursorTime(which);
+}
+
 /** Pick a voice by hand: from now on only that voice is selected and edited. */
 function setVoice(v) {
   const which = state.target;
   const score = state[which];
   state.voiceChoice = v;
-  if (v === 2) state.cursor = { voice: 2, t: state.cursor ? state.cursor.t : endTime(score.voice2) };
+  if (v === 2) state.cursor = { voice: 2, t: focusTime(which) };
   else {
-    const t = cursorTime(which);
+    const t = focusTime(which);
     state.cursor = t >= endTime(score.notes) - EPS ? null : { voice: 1, t };
   }
   syncSelection();
@@ -276,9 +309,10 @@ function buildCards() {
 function loadExercise(piece, ex) {
   const o = LIBRARY[piece].exercises[ex].score;
   commit(() => {
+    const speed = state.mine.tempo; // the chosen speed stays, whatever tempo the exercise was written in
     state.lib = { piece, ex };
-    state.original = clone(o);
-    state.mine = emptyScore({ title: 'My notes', clef: o.clef, key: o.key, time: o.time, tempo: o.tempo });
+    state.original = { ...clone(o), tempo: speed };
+    state.mine = emptyScore({ title: 'My notes', clef: o.clef, key: o.key, time: o.time, tempo: speed });
     state.selected = null;
     state.cursor = null;
     state.voiceChoice = null;
@@ -519,7 +553,7 @@ function onStaffClick(which, e) {
       index = insertIndex(notes, t); // first voice: later notes move right
       notes.splice(index, 0, note);
     } else {
-      index = placeNote(notes, t, note); // second voice: replaces what sounds there
+      index = placeNote(notes, t, note, voice === 2); // replaces what sounds there; the second voice pads with invisible rests
     }
     afterEnter(which, voice, index, voice === 1 && !exact);
     if (exact) {
@@ -823,7 +857,7 @@ function insertNote(note) {
       index = insertIndex(notes, t);
       notes.splice(index, 0, note);
     } else {
-      index = placeNote(notes, t, note);
+      index = placeNote(notes, t, note, voice === 2);
     }
     afterEnter(which, voice, index, insert);
     if (state.barView) state.barIndex = Math.floor(cursorTime(which) / barLength(state[which]) + EPS); // the one-bar view follows the cursor
@@ -929,6 +963,8 @@ function syncToolbar() {
   }
   $('#tool-voice').dataset.strict = String(strict());
   for (const b of document.querySelectorAll('[data-voice]')) b.setAttribute('aria-pressed', String(Number(b.dataset.voice) === activeVoice()));
+  $('#tempo-value').textContent = String(state.mine.tempo);
+  $('#tempo-play').innerHTML = state.playing?.which === 'mine' ? '&#9632; Stop' : '&#9654; Play my notes';
   $('#undo').disabled = history.length === 0;
   $('#redo').disabled = future.length === 0;
   $('#full-play').textContent = state.playing?.which === 'mine' ? '\u25A0' : '\u25B6';
@@ -1723,11 +1759,92 @@ function bindNoteDrag() {
 bindNoteDrag();
 
 
+
+// ---------- speed ----------
+// One speed for both staves: the tempo written in the scores. The slider changes it as it moves; nudge buttons give
+// fine steps; the favourites keep the speeds worth coming back to.
+
+const speed = () => state.mine.tempo;
+
+/** Show the speed everywhere without redrawing the staves (cheap enough to run on every slider movement). */
+function showSpeed() {
+  const v = speed();
+  $('#tempo-value').textContent = String(v);
+  $('#tempo-num').textContent = String(v);
+  $('#tempo-name').textContent = tempoName(v);
+  $('#tempo-slider').value = String(v);
+  for (const el of document.querySelectorAll('[data-meta=tempo]')) el.value = String(v);
+  const fav = hasFav(state.tempoFavs, v);
+  const save = $('#tempo-save');
+  save.setAttribute('aria-pressed', String(fav));
+  save.innerHTML = fav ? '&#9829; In favorites (tap to remove)' : '&#9825; Save to favorites';
+  $('#tempo-favs').innerHTML = state.tempoFavs.length
+    ? state.tempoFavs
+        .map((b) => `<span class="fav${b === v ? ' current' : ''}"><button class="fav-set" data-fav="${b}" title="${tempoName(b)}">${b}</button><button class="fav-del" data-fav-del="${b}" aria-label="Remove ${b} from favorites">&times;</button></span>`)
+        .join('')
+    : '<span class="muted">Nothing saved yet: set a speed, then tap "Save to favorites".</span>';
+}
+
+function setSpeed(bpm, final = true) {
+  const v = clampTempo(bpm);
+  if (v !== speed() || final) {
+    state.mine.tempo = v;
+    state.original.tempo = v;
+  }
+  showSpeed();
+  if (final) {
+    persist();
+    render(); // the staves and the tempo fields follow
+  }
+}
+
+function openTempoModal() {
+  $('#tempo-slider').min = String(TEMPO_MIN);
+  $('#tempo-slider').max = String(TEMPO_MAX);
+  showSpeed();
+  $('#tempo-modal').hidden = false;
+  document.body.classList.add('modal-open');
+}
+
+function closeTempoModal() {
+  $('#tempo-modal').hidden = true;
+  document.body.classList.remove('modal-open');
+}
+
+function bindTempoModal() {
+  $('#tempo-open').addEventListener('click', openTempoModal);
+  $('#tempo-close').addEventListener('click', closeTempoModal);
+  const modal = $('#tempo-modal');
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) return closeTempoModal(); // the backdrop
+    const nudge = e.target.closest('[data-nudge]')?.dataset.nudge;
+    const fav = e.target.closest('[data-fav]')?.dataset.fav;
+    const del = e.target.closest('[data-fav-del]')?.dataset.favDel;
+    if (nudge) setSpeed(speed() + Number(nudge));
+    else if (fav) setSpeed(Number(fav));
+    else if (del) {
+      state.tempoFavs = removeFav(state.tempoFavs, Number(del));
+      persist();
+      showSpeed();
+    } else if (e.target.closest('#tempo-save')) {
+      state.tempoFavs = hasFav(state.tempoFavs, speed()) ? removeFav(state.tempoFavs, speed()) : addFav(state.tempoFavs, speed());
+      persist();
+      showSpeed();
+    } else if (e.target.closest('#tempo-play')) togglePlay('mine');
+  });
+  $('#tempo-slider').addEventListener('input', (e) => setSpeed(Number(e.target.value), false)); // live, no redraw
+  $('#tempo-slider').addEventListener('change', (e) => setSpeed(Number(e.target.value))); // let go: save and redraw
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !modal.hidden) closeTempoModal();
+  });
+}
+
 // ---------- tool panel layout ----------
 // In full screen the tools of the right-hand panel follow state.panel: a list of tool ids and null (an empty cell).
 // Each tool gets that position as its CSS `order`, a null becomes a gap cell, a tool that is not listed is hidden.
 // The settings button opens an editor: drag a tool (press and hold on a touch screen) to another cell, drop it on a
-// tool to swap, on an empty cell to leave a gap, on "hidden tools" to hide it. A tap picks a tool up as well.
+// tool to swap, on an empty cell to leave a gap, on "hidden tools" to hide it. A tap picks a tool up: it can then be
+// coloured, or moved into an empty cell (or hidden) with another tap.
 
 const PANEL_TOOLS = {
   'dur-w': '[data-dur="w"]', 'dur-h': '[data-dur="h"]', 'dur-q': '[data-dur="q"]', 'dur-e': '[data-dur="e"]', dot: '#tool-dot',
@@ -1737,7 +1854,7 @@ const PANEL_TOOLS = {
   erase: '#erase', 'erase-note': '[data-erase="note"]', 'erase-bar': '[data-erase="bar"]',
   undo: '#undo', redo: '#redo', check: '#check',
   play: '#full-play', 'zoom-out': '#full-zoom-out', 'zoom-in': '#full-zoom-in', 'bar-mode': '#bar-mode', pin: '#board-pin',
-  settings: '#panel-settings', exit: '#full-exit',
+  settings: '#panel-settings', exit: '#full-exit', tempo: '#tempo-open',
   'bar-prev': '#bar-prev', 'bar-label': '#bar-label', 'bar-next': '#bar-next', 'grid-size': '#grid-size',
 };
 const PANEL_NAMES = {
@@ -1746,7 +1863,7 @@ const PANEL_NAMES = {
   piano: 'Piano keys', sound: 'Sound', erase: 'Eraser', 'erase-note': 'Erase a note', 'erase-bar': 'Erase a bar',
   undo: 'Undo', redo: 'Redo', check: 'Check', play: 'Play', 'zoom-out': 'Smaller notes', 'zoom-in': 'Larger notes',
   'bar-mode': 'One-bar view', pin: 'Fix position and zoom', settings: 'Panel layout (stays)', exit: 'Leave full screen (stays)',
-  'bar-prev': 'Previous bar', 'bar-label': 'Bar number', 'bar-next': 'Next bar', 'grid-size': 'Split size',
+  'bar-prev': 'Previous bar', 'bar-label': 'Bar number', 'bar-next': 'Next bar', 'grid-size': 'Split size', tempo: 'Speed (BPM)',
 };
 const PANEL_IDS = Object.keys(PANEL_TOOLS);
 // these show only when they apply (the one-bar view, the eraser being on); their cell stays empty meanwhile
@@ -1756,6 +1873,18 @@ const toolEl = (id) => $(PANEL_TOOLS[id]);
 let panelPicked = null; // a tool picked up by a tap, waiting for a cell
 
 function applyPanel() {
+  for (const id of PANEL_IDS) {
+    const el = toolEl(id);
+    if (!el) continue;
+    const color = state.panelColors[id];
+    if (color) {
+      el.dataset.tc = '1';
+      el.style.setProperty('--tc', color);
+    } else {
+      delete el.dataset.tc;
+      el.style.removeProperty('--tc');
+    }
+  }
   for (const g of toolbarEl.querySelectorAll('.tool-gap')) g.remove();
   for (const id of PANEL_IDS) {
     const el = toolEl(id);
@@ -1776,14 +1905,16 @@ function applyPanel() {
 }
 
 function panelChip(id) {
-  const icon = id === 'sound' ? '&#9834;' : id === 'grid-size' ? GRIDS.find(([k]) => k === state.grid)?.[1] : id === 'bar-label' ? 'n/N' : (toolEl(id)?.innerHTML ?? id);
+  const icon = id === 'tempo' ? `<span class="tempo-ico">&#9833;</span><span class="tv">${state.mine.tempo}</span>` : id === 'sound' ? '&#9834;' : id === 'grid-size' ? GRIDS.find(([k]) => k === state.grid)?.[1] : id === 'bar-label' ? 'n/N' : (toolEl(id)?.innerHTML ?? id);
   const fixed = REQUIRED.includes(id) ? ' fixed' : '';
   const cond = PANEL_CONDITIONAL[id] ? ' cond' : '';
   const name = PANEL_NAMES[id] + (PANEL_CONDITIONAL[id] ? ` (only in the ${PANEL_CONDITIONAL[id]})`.replace('in the eraser on', 'while the eraser is on') : '');
-  return `<div class="pchip${panelPicked === id ? ' picked' : ''}${fixed}${cond}" data-tool="${id}" role="button" aria-label="${name}" title="${name}">${icon}</div>`;
+  const color = state.panelColors[id];
+  const tint = color ? ` data-tc="1" style="--tc: ${color}"` : '';
+  return `<div class="pchip${panelPicked === id ? ' picked' : ''}${fixed}${cond}" data-tool="${id}"${tint} role="button" aria-label="${name}" title="${name}">${icon}</div>`;
 }
 
-const PANEL_HINT = 'Press and hold a tool and drag it: onto a tool to swap, onto an empty cell to leave a gap, onto the hidden tools to hide it. Or tap a tool, then a cell.';
+const PANEL_HINT = 'Press and hold a tool and drag it: onto a tool to swap, onto an empty cell to leave a gap, onto the hidden tools to hide it. Or tap a tool to colour it or to move it into an empty cell.';
 
 function renderPanelEditor(hint = PANEL_HINT) {
   const cols = panelCols();
@@ -1798,7 +1929,16 @@ function renderPanelEditor(hint = PANEL_HINT) {
   $('#panel-grid').innerHTML = cells;
   const hidden = hiddenTools(order, PANEL_IDS);
   $('#panel-tray').innerHTML = hidden.length ? hidden.map(panelChip).join('') : '<span class="muted">Every tool is on the panel.</span>';
-  $('#panel-hint').textContent = panelPicked ? `${PANEL_NAMES[panelPicked]}: tap a cell to put it there (or the hidden tools to hide it).` : hint;
+  const bar = $('#panel-colors');
+  bar.hidden = !panelPicked;
+  if (panelPicked) {
+    const now = state.panelColors[panelPicked] ?? null;
+    $('.pc-label', bar).textContent = `Icon colour: ${PANEL_NAMES[panelPicked].replace(' (stays)', '')}`;
+    $('#panel-swatches').innerHTML =
+      `<button class="swatch none${now ? '' : ' current'}" data-color="" title="Default colour" aria-label="Default colour"></button>` +
+      PALETTE.map(([name, hex]) => `<button class="swatch${now === hex ? ' current' : ''}" data-color="${hex}" style="background: ${hex}" title="${name}" aria-label="${name}"></button>`).join('');
+  }
+  $('#panel-hint').textContent = panelPicked ? `${PANEL_NAMES[panelPicked]}: tap an empty cell to move it there (or the hidden tools to hide it), or choose its icon colour above.` : hint;
 }
 
 function commitPanel(order) {
@@ -1879,7 +2019,7 @@ function bindPanelEditor() {
     const zone = 56;
     const v = drag.py < box.top + zone ? -(1 - (drag.py - box.top) / zone) : drag.py > box.bottom - zone ? 1 - (box.bottom - drag.py) / zone : 0;
     if (v) {
-      body.scrollTop += Math.round(v * 14);
+      body.scrollTop += Math.sign(v) * Math.max(1, Math.round(v * v * 9)); // gentle at the start of the edge zone, faster right at the edge; up or down
       highlight();
     }
     drag.raf = requestAnimationFrame(autoScroll);
@@ -1922,10 +2062,8 @@ function bindPanelEditor() {
       if (target) moveTool(d.id, target);
       return;
     }
-    // a tap: pick the tool up, or put the picked one here (on a tool: they swap)
-    const at = state.panel.indexOf(d.id);
-    if (panelPicked && panelPicked !== d.id && at >= 0) moveTool(panelPicked, { cell: at });
-    else panelPicked = panelPicked === d.id ? null : d.id;
+    // a tap picks the tool up (it can then be coloured, or put in an empty cell); tapping it again puts it down
+    panelPicked = panelPicked === d.id ? null : d.id;
     renderPanelEditor();
   });
   window.addEventListener('pointercancel', () => endDrag());
@@ -1934,6 +2072,14 @@ function bindPanelEditor() {
   body.addEventListener('contextmenu', (e) => e.target.closest('.pchip') && e.preventDefault());
   // taps on an empty cell or on the hidden tools, with a tool picked up
   body.addEventListener('click', (e) => {
+    const swatch = e.target.closest('.swatch');
+    if (swatch && panelPicked) {
+      state.panelColors = withColor(state.panelColors, panelPicked, swatch.dataset.color || null);
+      persist();
+      applyPanel();
+      renderPanelEditor();
+      return;
+    }
     if (!panelPicked || e.target.closest('.pchip')) return;
     const cell = e.target.closest('#panel-grid .pcell');
     if (cell) moveTool(panelPicked, { cell: Number(cell.dataset.cell) });
@@ -1978,6 +2124,7 @@ new ResizeObserver(() => {
 
 buildCards();
 bindPanelEditor();
+bindTempoModal();
 setSound(state.sound);
 setTimeout(warmUp, 600);
 buildLibrary();

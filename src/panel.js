@@ -14,13 +14,17 @@ export const DEFAULT_ORDER = [
   'dur-e', 'dot', 'acc-#',
   'acc-b', 'acc-n', 'voice-1',
   'voice-2', 'rest', 'piano',
-  'sound', 'undo', 'redo',
+  'sound', 'tempo', 'undo',
+  'redo', 'check', 'play',
   'erase', 'erase-note', 'erase-bar',
-  'check', 'play', 'pin',
-  'zoom-out', 'zoom-in', 'settings',
-  'bar-mode', 'bar-prev', 'bar-next',
-  'bar-label', 'grid-size', 'exit',
+  'pin', 'zoom-out', 'zoom-in',
+  'settings', 'bar-mode', 'bar-prev',
+  'bar-next', 'bar-label', 'grid-size',
+  'exit',
 ];
+
+/** The tools a layout saved before the speed tool existed knew about. */
+export const LEGACY_TOOLS = DEFAULT_ORDER.filter((id) => id !== 'tempo');
 
 const trim = (order) => {
   const out = [...order];
@@ -71,3 +75,44 @@ export const removeGaps = (order) => order.filter((id) => id !== null);
 
 /** Tools not on the panel, in the factory order. */
 export const hiddenTools = (order, known = DEFAULT_ORDER) => known.filter((id) => !order.includes(id));
+
+/** Icon colours to choose from: [name, #rrggbb]. */
+export const PALETTE = [
+  ['Red', '#e03131'], ['Orange', '#e8590c'], ['Yellow', '#f59f00'], ['Green', '#2f9e44'], ['Teal', '#0c8599'],
+  ['Blue', '#4c6ef5'], ['Purple', '#845ef7'], ['Pink', '#d6336c'], ['Gray', '#868e96'],
+];
+
+/** Saved icon colours made safe: only known tools and #rrggbb values. */
+export function normalizeColors(colors, known = DEFAULT_ORDER) {
+  const out = {};
+  if (!colors || typeof colors !== 'object' || Array.isArray(colors)) return out;
+  for (const [id, c] of Object.entries(colors)) if (known.includes(id) && typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c)) out[id] = c.toLowerCase();
+  return out;
+}
+
+/** The colours with `id` set to `color` (null: back to the default colour). */
+export function withColor(colors, id, color) {
+  const out = { ...colors };
+  if (color) out[id] = color;
+  else delete out[id];
+  return normalizeColors(out, Object.keys(out).concat(id));
+}
+
+/**
+ * Put tools that are new since the layout was saved onto it: `seen` lists the tools the user's layout already knew, so
+ * a tool the user hid on purpose stays hidden. A new tool takes the first empty cell, else the end.
+ * @returns {{ order: (string|null)[], seen: string[] }}
+ */
+export function addNewTools(order, seen, all = DEFAULT_ORDER) {
+  const out = [...order];
+  const known = new Set(seen);
+  for (const id of all) {
+    if (known.has(id)) continue;
+    known.add(id);
+    if (out.includes(id)) continue;
+    const gap = out.indexOf(null);
+    if (gap >= 0) out[gap] = id;
+    else out.push(id);
+  }
+  return { order: trim(out), seen: [...known] };
+}

@@ -74,6 +74,7 @@ function drawRest(n, cx, mid, cls, v, i) {
 
 // two = both voices are on the staff: voice 1 stems up, voice 2 stems down, rests pushed apart
 function drawNote(n, v, i, cx, sys, bDia, sign, cls, beam, two) {
+  if (n.pitch === REST && n.pad) return ''; // invisible padding (see placeNote)
   if (n.pitch === REST) return drawRest(n, cx, sys.staffBottom - 4 * STEP + (two ? (v === 1 ? -12 : 12) : 0), cls, v, i);
   const p = parsePitch(n.pitch);
   const step = diatonic(p) - bDia;

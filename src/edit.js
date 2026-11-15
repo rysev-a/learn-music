@@ -12,13 +12,13 @@ const REST_SIZES = [
   { beats: 0.5, dur: 'e' },
 ];
 
-/** Rests that add up to `beats` (longest first). */
-export function restsFor(beats) {
+/** Rests that add up to `beats` (longest first). `pad`: invisible padding that only keeps the timing right. */
+export function restsFor(beats, pad = false) {
   const out = [];
   let left = beats;
   for (const { beats: size, dur, dot } of REST_SIZES) {
     while (left >= size - EPS) {
-      out.push({ pitch: REST, dur, ...(dot && { dot: true }) });
+      out.push({ pitch: REST, dur, ...(dot && { dot: true }), ...(pad && { pad: true }) });
       left -= size;
     }
   }
@@ -27,22 +27,24 @@ export function restsFor(beats) {
 
 /**
  * Put `note` at time `t` of a voice, replacing whatever sounds there (the part of an old note that
- * sticks out becomes a rest). Past the end of the voice the gap is filled with rests.
+ * sticks out becomes a rest). Past the end of the voice the gap is filled with rests: with `pad` (the second voice)
+ * those are invisible padding, so the bars before the note stay empty on the page.
  * @returns the index of the new note
  */
-export function placeNote(notes, t, note) {
+export function placeNote(notes, t, note, pad = false) {
   const times = timeline(notes);
   const end = times.at(-1)?.end ?? 0;
   if (t >= end - EPS) {
-    notes.push(...restsFor(t - end), note);
+    notes.push(...restsFor(t - end, pad), note);
     return notes.length - 1;
   }
   const stop = t + beatsOf(note);
   const first = times.findIndex((x) => x.end > t + EPS);
   let last = first;
   while (last + 1 < notes.length && times[last + 1].start < stop - EPS) last++;
-  const head = times[first].start < t - EPS ? restsFor(t - times[first].start) : [];
-  const tail = times[last].end > stop + EPS ? restsFor(times[last].end - stop) : [];
+  // what is left of a note that was in the way stays what it was: a bit of padding is still padding
+  const head = times[first].start < t - EPS ? restsFor(t - times[first].start, !!notes[first].pad) : [];
+  const tail = times[last].end > stop + EPS ? restsFor(times[last].end - stop, !!notes[last].pad) : [];
   notes.splice(first, last - first + 1, ...head, note, ...tail);
   return first + head.length;
 }
@@ -62,7 +64,7 @@ export function deleteNote(notes, index, keepTime) {
     notes.splice(index, 1);
     return;
   }
-  notes[index] = { pitch: REST, dur: notes[index].dur, ...(notes[index].dot && { dot: true }) };
+  notes[index] = { pitch: REST, dur: notes[index].dur, ...(notes[index].dot && { dot: true }), pad: true }; // invisible: the bar is left empty
   while (notes.length && notes.at(-1).pitch === REST) notes.pop();
 }
 
