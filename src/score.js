@@ -183,7 +183,7 @@ export function validateScore(raw) {
       if (!pitchOk) errors.push(`${where}: bad pitch ${JSON.stringify(n.pitch)} (use "C4", "F#5", "Bb3" or "r" for a rest)`);
       if (!(n.dur in DURATIONS)) errors.push(`${where}: bad dur ${JSON.stringify(n.dur)} (use w, h, q or e)`);
       if (n.dot !== undefined && typeof n.dot !== 'boolean') errors.push(`${where}: dot must be true or false`);
-      if (pitchOk && n.dur in DURATIONS) out.push({ pitch: n.pitch, dur: n.dur, ...(n.dot === true && { dot: true }) });
+      if (pitchOk && n.dur in DURATIONS) out.push({ pitch: n.pitch, dur: n.dur, ...(n.dot === true && { dot: true }), ...(n.pad === true && n.pitch === REST && { pad: true }) });
     });
     return out;
   };
@@ -198,7 +198,7 @@ export function stringifyScore(s) {
   const head = { version: s.version, title: s.title, clef: s.clef, key: s.key, time: s.time, tempo: s.tempo };
   const lines = Object.entries(head).map(([k, v]) => `  ${JSON.stringify(k)}: ${JSON.stringify(v)}`);
   const list = (notes) => {
-    const rows = notes.map((n) => `    ${JSON.stringify({ pitch: n.pitch, dur: n.dur, ...(n.dot && { dot: true }) })}`).join(',\n');
+    const rows = notes.map((n) => `    ${JSON.stringify({ pitch: n.pitch, dur: n.dur, ...(n.dot && { dot: true }), ...(n.pad && { pad: true }) })}`).join(',\n');
     return `[${rows ? `\n${rows}\n  ` : ''}]`;
   };
   const second = s.voice2?.length ? `,\n  "voice2": ${list(s.voice2)}` : '';

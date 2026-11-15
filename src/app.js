@@ -19,7 +19,7 @@ const WHICH = ['original', 'mine'];
 const LABELS = { original: 'Original', mine: 'My notes' };
 const $ = (sel, root = document) => root.querySelector(sel);
 const clone = (x) => JSON.parse(JSON.stringify(x));
-const BUILD = '2026-11-15.5';
+const BUILD = '2026-11-15.6';
 const PIANO_W_MIN = 20; // narrowest / widest white key of the piano board (pinch changes it)
 const PIANO_W_MAX = 100;
 $('#build').textContent = `build ${BUILD}`;
@@ -215,14 +215,35 @@ function afterEnter(which, voice, index, insert = false) {
   state.cursor = voice === 1 && t >= endTime(state[which].notes) - EPS ? null : { voice, t, ...(insert && { insert: true }) };
 }
 
+/**
+ * The time the user is working at: in the one-bar view the bar on the screen (the cursor if it is in that bar, else its
+ * start), otherwise the cursor, or the end of the first voice. Switching voice keeps the user here, not at the start.
+ */
+function focusTime(which) {
+  if (state.full && state.barView) {
+    const L = barLength(state[which]);
+    const from = state.barIndex * L;
+    const t = state.cursor?.t;
+    return t !== undefined && t >= from - EPS && t < from + L - EPS ? t : from;
+  }
+  if (state.full && !state.cursor && !state.selected && layouts[which]?.slots.length) {
+    // the scrolling board with nothing picked: the bar in the middle of the screen
+    const wx = (boardView().w / 2 - board.x) / state.zoom;
+    const nearest = layouts[which].slots.reduce((b, sl) => (Math.abs(sl.x - wx) < Math.abs(b.x - wx) ? sl : b));
+    const L = barLength(state[which]);
+    return Math.floor(nearest.t / L + EPS) * L;
+  }
+  return cursorTime(which);
+}
+
 /** Pick a voice by hand: from now on only that voice is selected and edited. */
 function setVoice(v) {
   const which = state.target;
   const score = state[which];
   state.voiceChoice = v;
-  if (v === 2) state.cursor = { voice: 2, t: state.cursor ? state.cursor.t : endTime(score.voice2) };
+  if (v === 2) state.cursor = { voice: 2, t: focusTime(which) };
   else {
-    const t = cursorTime(which);
+    const t = focusTime(which);
     state.cursor = t >= endTime(score.notes) - EPS ? null : { voice: 1, t };
   }
   syncSelection();
@@ -532,7 +553,7 @@ function onStaffClick(which, e) {
       index = insertIndex(notes, t); // first voice: later notes move right
       notes.splice(index, 0, note);
     } else {
-      index = placeNote(notes, t, note); // second voice: replaces what sounds there
+      index = placeNote(notes, t, note, voice === 2); // replaces what sounds there; the second voice pads with invisible rests
     }
     afterEnter(which, voice, index, voice === 1 && !exact);
     if (exact) {
@@ -836,7 +857,7 @@ function insertNote(note) {
       index = insertIndex(notes, t);
       notes.splice(index, 0, note);
     } else {
-      index = placeNote(notes, t, note);
+      index = placeNote(notes, t, note, voice === 2);
     }
     afterEnter(which, voice, index, insert);
     if (state.barView) state.barIndex = Math.floor(cursorTime(which) / barLength(state[which]) + EPS); // the one-bar view follows the cursor
