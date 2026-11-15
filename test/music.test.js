@@ -6,7 +6,8 @@ import { renderScore, hitTest, layoutScore, gridLines } from '../src/render.js';
 import { readFileSync } from 'node:fs';
 import { LIBRARY, allExercises, setLibrary } from '../src/library.js';
 import { keyLayout, lookupKey, keyFromCode } from '../src/keyboard.js';
-import { pianoSamples, sampleName } from '../src/audio.js';
+import { pianoSamples, sampleName, SOUNDS } from '../src/audio.js';
+import { renderVoice } from '../src/voices.js';
 import { placeNote, insertIndex, deleteNote, restsFor, deleteBar } from '../src/edit.js';
 
 assert.ok(setLibrary(JSON.parse(readFileSync(new URL('../init.json', import.meta.url), 'utf8'))), 'init.json is a valid library');
@@ -273,5 +274,45 @@ test('recorded piano: every key of A0..Db8 has a sample file, none outside', () 
   assert.equal(sampleName(110), null);
   for (let m = 21; m <= 109; m++) {
     assert.ok(readFileSync(new URL(`../sounds/piano/${sampleName(m)}.mp3`, import.meta.url)).length > 1000, `sample for ${m}`);
+  }
+});
+
+test('synthesized voices: finite, normalised, die away, and in tune', () => {
+  const ids = SOUNDS.filter((v) => v.id !== 'recorded').map((v) => v.id);
+  assert.equal(ids.length, 10);
+  const rate = 8000;
+  const rms = (x, from, to) => Math.sqrt(x.slice(from, to).reduce((a, v) => a + v * v, 0) / (to - from));
+  // strongest repeat of the waveform: the period, compared with the one expected
+  const period = (x, lo, hi) => {
+    let best = lo;
+    let bestScore = -Infinity;
+    for (let lag = lo; lag <= hi; lag++) {
+      let sum = 0;
+      for (let i = 400; i < 400 + 2400; i++) sum += x[i] * x[i + lag];
+      if (sum > bestScore) [best, bestScore] = [lag, sum];
+    }
+    return best;
+  };
+  for (const id of ids) {
+    for (const m of [45, 60, 84]) {
+      const x = renderVoice(id, m, rate);
+      assert.ok(x.length > rate * 0.5 && x.length < rate * 7, `${id} ${m}: length ${x.length}`);
+      assert.ok(x.every(Number.isFinite), `${id} ${m}: finite`);
+      const peak = x.reduce((a, v) => Math.max(a, Math.abs(v)), 0);
+      assert.ok(Math.abs(peak - 0.9) < 1e-3, `${id} ${m}: peak ${peak}`);
+      assert.ok(rms(x, 0, 800) > 0.02, `${id} ${m}: sounds at the start`);
+      assert.ok(Math.abs(x[x.length - 1]) < 1e-3, `${id} ${m}: ends at zero (no click)`);
+      const mid = Math.floor(x.length * 0.6);
+      assert.ok(rms(x, mid, mid + 800) < rms(x, 0, 800), `${id} ${m}: dies away`);
+    }
+  }
+  // tuned: A3 (220 Hz) and A4 (440 Hz); the bell / bar voices have no single pitch to follow
+  for (const id of ['additive', 'felt', 'honky', 'ep', 'wurli', 'ks', 'harpsi']) {
+    for (const [m, f] of [[57, 220], [69, 440]]) {
+      const expected = rate / f;
+      const got = period(renderVoice(id, m, rate), Math.floor(expected * 0.7), Math.ceil(expected * 1.3));
+      const multiple = Math.round(got / expected);
+      assert.ok(multiple >= 1 && Math.abs(got / multiple - expected) / expected < 0.03, `${id} at ${f} Hz: period ${got}, expected ${expected}`);
+    }
   }
 });

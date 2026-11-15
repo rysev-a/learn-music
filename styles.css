@@ -548,3 +548,7 @@ html.full #piano { right: calc(var(--tool-w) + env(safe-area-inset-right)); }
 html.piano .layout { padding-bottom: calc(var(--piano-h) + 24px + env(safe-area-inset-bottom)); }
 html.full.piano .layout { height: calc(100% - var(--piano-h) - env(safe-area-inset-bottom)); padding-bottom: 0; }
 html.piano #build { padding-bottom: calc(var(--piano-h) + 16px); }
+
+/* sound menu */
+#sound-select { max-width: 150px; height: 34px; font-size: 13px; }
+html.full .toolbar #sound-select { grid-column: 1 / -1; max-width: none; width: 100%; font-size: 12.5px; padding: 0 4px; }

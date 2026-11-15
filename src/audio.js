@@ -1,77 +1,11 @@
 import { REST, beatsOf, midi, parsePitch, voiceNotes, voicesOf } from './score.js';
+import { SOUNDS, pianoSamples, renderVoice } from './voices.js';
 
-// The sound is the recorded piano in sounds/piano. Until a recording is loaded (and for keys outside its range) a
+export { SOUNDS, pianoSamples };
+
+// The sound is the recorded piano in sounds/piano (or one of the synthesized voices in voices.js). Until a recording is loaded (and for keys outside its range) a
 // synthesized piano stands in: additive synthesis, every note rendered once into a buffer (a few slightly inharmonic
 // partials that die away at their own pace, two strings a hair apart, a soft hammer knock).
-
-const SAMPLE_RATE_FALLBACK = 44100;
-const midiFreq = (m) => 440 * 2 ** ((m - 69) / 12);
-
-/**
- * One piano note as samples in [-1, 1] (peak 0.9). Pure: no audio context needed.
- * @param m MIDI note number
- * @param rate sample rate
- */
-export function pianoSamples(m, rate = SAMPLE_RATE_FALLBACK) {
-  const f0 = midiFreq(m);
-  // low notes ring for seconds, high notes are over quickly
-  const tau = Math.min(5, Math.max(0.5, 3.4 * 2 ** (-(m - 48) / 17)));
-  const seconds = Math.min(5, tau * 2.6);
-  const n = Math.floor(rate * seconds);
-  const out = new Float32Array(n);
-  const bright = 0.6 + 0.4 * Math.min(1, Math.max(0, (m - 36) / 48)); // high notes keep more of their upper partials
-  const inharm = 0.00008 * 2 ** (Math.max(0, m - 40) / 14); // stiffness: upper partials sit a little sharp
-
-  // each partial is a rotating phasor with two decaying envelopes (no sin / exp per sample: this runs on phones)
-  for (let k = 1; k <= 12; k++) {
-    const f = k * f0 * Math.sqrt(1 + inharm * k * k);
-    if (f > rate * 0.45) break;
-    const strike = Math.abs(Math.sin((Math.PI * k) / 7)); // hammer hits one seventh along the string
-    const amp = (strike * bright ** (k - 1)) / k ** 0.85;
-    if (amp < 0.01) continue;
-    const kf = Math.exp(-1 / (rate * (tau / (1.5 + 1.1 * (k - 1))))); // upper partials fade first
-    const ks = Math.exp(-1 / (rate * (tau / (0.7 + 0.45 * (k - 1)))));
-    // two strings a hair apart (the slow beating of a real piano) for the low partials, one for the rest
-    const detunes = k <= 3 ? [-0.00022, 0.00022] : [0];
-    for (const d of detunes) {
-      const w = (2 * Math.PI * f * (1 + d)) / rate;
-      const [cw, sw] = [Math.cos(w), Math.sin(w)];
-      const ph = (k * 1.7 + d * 1000) % (2 * Math.PI);
-      let [sn, cs] = [Math.sin(ph), Math.cos(ph)];
-      let [ef, es] = [0.65, 0.35];
-      const g = amp / detunes.length;
-      for (let i = 0; i < n; i++) {
-        out[i] += g * (ef + es) * sn;
-        [sn, cs] = [sn * cw + cs * sw, cs * cw - sn * sw];
-        ef *= kf;
-        es *= ks;
-      }
-    }
-  }
-
-  // hammer knock: a few milliseconds of low-passed noise
-  let lp = 0;
-  let seed = (m * 2654435761) >>> 0;
-  const knock = Math.min(n, Math.floor(rate * 0.04));
-  for (let i = 0; i < knock; i++) {
-    seed = (seed * 1664525 + 1013904223) >>> 0;
-    lp += 0.25 * ((seed / 4294967296) * 2 - 1 - lp);
-    out[i] += 0.35 * lp * Math.exp(-i / (rate * 0.006));
-  }
-
-  // a long ring that is cut at the end of the buffer fades out instead of clicking
-  const tail = Math.min(n, Math.floor(rate * 0.4));
-  for (let i = 0; i < tail; i++) out[n - 1 - i] *= i / tail;
-
-  // soft attack so there is no click, then normalise
-  const attack = Math.floor(rate * 0.002);
-  for (let i = 0; i < attack; i++) out[i] *= i / attack;
-  let peak = 0;
-  for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(out[i]));
-  const g = peak ? 0.9 / peak : 1;
-  for (let i = 0; i < n; i++) out[i] *= g;
-  return out;
-}
 
 // ---- the recorded piano (sounds/piano, 89 keys A0 to Db8) ----
 
@@ -84,7 +18,7 @@ let ctx;
 let master;
 const recorded = new Map(); // midi -> decoded buffer
 const pending = new Map(); // midi -> loading promise (or null once it failed)
-const synth = new Map(); // midi -> synthesized buffer, used until the recording is there (and outside its range)
+const synth = new Map(); // 'voice:midi' -> synthesized buffer (the stand-in until a recording is there, and the other voices)
 
 function context() {
   if (!ctx) {
@@ -162,19 +96,56 @@ export function warmUp() {
   for (let i = 0; i < 4; i++) worker();
 }
 
+let sound = 'recorded';
+/** Choose the instrument (an id from SOUNDS). */
+export function setSound(id) {
+  if (!SOUNDS.some((s) => s.id === id) || id === sound) return;
+  sound = id;
+  warmSynth();
+}
+
+let warming = 0;
+/** Render the usual range of the chosen voice in the background, a note per tick, so Play does not stall on a phone. */
+function warmSynth() {
+  if (sound === 'recorded') return;
+  const token = ++warming;
+  let c;
+  try {
+    c = context();
+  } catch {
+    return;
+  }
+  const todo = [];
+  for (let m = 36; m <= 96; m++) todo.push(m);
+  const step = () => {
+    const m = todo.shift();
+    if (token !== warming || m === undefined) return;
+    synthBuffer(c, sound, m);
+    setTimeout(step, 4);
+  };
+  setTimeout(step, 60);
+}
+
+/** One synthesized note as a buffer, rendered once per voice and pitch. */
+function synthBuffer(c, id, m) {
+  const key = `${id}:${m}`;
+  let buf = synth.get(key);
+  if (!buf) {
+    const data = renderVoice(id, m, c.sampleRate);
+    buf = c.createBuffer(1, data.length, c.sampleRate);
+    buf.copyToChannel(data, 0);
+    synth.set(key, buf);
+  }
+  return buf;
+}
+
 function bufferFor(c, pitch) {
   const m = midi(parsePitch(pitch));
+  if (sound !== 'recorded') return synthBuffer(c, sound, m);
   const buf = recorded.get(m);
   if (buf) return buf;
-  load(c, m); // not there yet: start fetching it, play the synthesized note this time
-  let alt = synth.get(m);
-  if (!alt) {
-    const data = pianoSamples(m, c.sampleRate);
-    alt = c.createBuffer(1, data.length, c.sampleRate);
-    alt.copyToChannel(data, 0);
-    synth.set(m, alt);
-  }
-  return alt;
+  load(c, m); // not there yet: start fetching it, play the synthesized piano this time
+  return synthBuffer(c, 'additive', m);
 }
 
 /** Strike a key at `start`, let go after `dur` seconds (a short release, so it does not stop with a click). */
@@ -213,6 +184,14 @@ export function beep(pitch) {
   } catch {
     // no sound (no Web Audio, or the browser refused): editing must go on
   }
+}
+
+/** A short arpeggio in the current sound, to compare the sounds by ear. */
+export function demo() {
+  try {
+    const c = audio();
+    ['C4', 'E4', 'G4', 'C5', 'G4'].forEach((p, i) => tone(c, p, c.currentTime + 0.05 + i * 0.26, i === 4 ? 1.2 : 0.5, 0.5));
+  } catch {}
 }
 
 /** Play a whole score (both voices together). Returns a stop() function. onNote(voice, index) fires as each note starts. */
