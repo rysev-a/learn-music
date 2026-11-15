@@ -18,7 +18,7 @@ const WHICH = ['original', 'mine'];
 const LABELS = { original: 'Original', mine: 'My notes' };
 const $ = (sel, root = document) => root.querySelector(sel);
 const clone = (x) => JSON.parse(JSON.stringify(x));
-const BUILD = '2026-11-15.2';
+const BUILD = '2026-11-15.3';
 const PIANO_W_MIN = 20; // narrowest / widest white key of the piano board (pinch changes it)
 const PIANO_W_MAX = 100;
 $('#build').textContent = `build ${BUILD}`;
@@ -1749,7 +1749,7 @@ const PANEL_NAMES = {
   'bar-prev': 'Previous bar', 'bar-label': 'Bar number', 'bar-next': 'Next bar', 'grid-size': 'Split size',
 };
 const PANEL_IDS = Object.keys(PANEL_TOOLS);
-// these show only when they apply (the one-bar view, the eraser being on) and take no room otherwise
+// these show only when they apply (the one-bar view, the eraser being on); their cell stays empty meanwhile
 const PANEL_CONDITIONAL = { 'bar-prev': 'one-bar view', 'bar-label': 'one-bar view', 'bar-next': 'one-bar view', 'grid-size': 'one-bar view', 'erase-note': 'eraser on', 'erase-bar': 'eraser on' };
 const panelCols = () => (matchMedia('(orientation: landscape)').matches ? 3 : 2); // as the CSS of the panel
 const toolEl = (id) => $(PANEL_TOOLS[id]);

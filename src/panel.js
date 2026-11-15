@@ -1,19 +1,25 @@
 // The right-hand tool panel (full screen) is a list of slots: a tool id, or null for an empty position. The list is
-// laid out in rows of 2 or 3 cells. A tool that is not in the list is hidden. These are the pure operations on it.
+// laid out in rows of 2 or 3 cells (every cell keeps its place whatever is showing). A tool that is not in the list is
+// hidden. These are the pure operations on it.
 
 /** Tools that cannot be hidden: without them the user could not leave full screen or open the settings again. */
 export const REQUIRED = ['settings', 'exit'];
 
-/** The factory layout: the bar-view controls first (they only show in that view), then the tools as they always were. */
+/**
+ * The factory layout. A tool that shows only when it applies (the eraser's two options, the bar-view controls) keeps
+ * its cell, empty meanwhile, so the panel is always laid out exactly as the editor shows it.
+ */
 export const DEFAULT_ORDER = [
-  'bar-prev', 'bar-label', 'bar-next', 'grid-size',
-  'dur-w', 'dur-h', 'dur-q', 'dur-e', 'dot',
-  'acc-#', 'acc-b', 'acc-n',
-  'voice-1', 'voice-2', 'rest',
-  'piano', 'sound',
+  'dur-w', 'dur-h', 'dur-q',
+  'dur-e', 'dot', 'acc-#',
+  'acc-b', 'acc-n', 'voice-1',
+  'voice-2', 'rest', 'piano',
+  'sound', 'undo', 'redo',
   'erase', 'erase-note', 'erase-bar',
-  'undo', 'redo', 'check',
-  'play', 'zoom-out', 'zoom-in', 'bar-mode', 'pin', 'settings', 'exit',
+  'check', 'play', 'pin',
+  'zoom-out', 'zoom-in', 'settings',
+  'bar-mode', 'bar-prev', 'bar-next',
+  'bar-label', 'grid-size', 'exit',
 ];
 
 const trim = (order) => {
