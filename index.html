@@ -110,6 +110,7 @@
           </button>
         </div>
         <div class="group full-only">
+          <button class="icon tempo-btn" id="tempo-open" aria-haspopup="dialog" title="Speed (beats per minute)" aria-label="Speed"><span class="tempo-ico" aria-hidden="true">&#9833;</span><span id="tempo-value">120</span></button>
           <button class="icon" id="full-play" title="Play my notes" aria-label="Play my notes">▶</button>
           <button class="icon" id="full-zoom-out" title="Smaller notes" aria-label="Smaller notes">&minus;</button>
           <button class="icon" id="full-zoom-in" title="Larger notes" aria-label="Larger notes">+</button>
@@ -184,6 +185,33 @@
         <button class="icon" id="sound-close" title="Close" aria-label="Close">✕</button>
       </div>
       <div id="sound-list"></div>
+    </div>
+  </div>
+
+  <!-- speed: a slider, fine steps, favourite speeds, and a play button to try it -->
+  <div id="tempo-modal" class="modal" hidden>
+    <div class="sm-box" role="dialog" aria-modal="true" aria-label="Speed">
+      <div class="sm-head">
+        <h2>Speed</h2>
+        <button class="icon" id="tempo-close" title="Close" aria-label="Close">✕</button>
+      </div>
+      <div id="tempo-body">
+        <div class="tempo-big"><span id="tempo-num">120</span><small>BPM</small></div>
+        <div class="tempo-name" id="tempo-name"></div>
+        <div class="tempo-slide">
+          <button class="icon" data-nudge="-5" aria-label="5 slower">&minus;5</button>
+          <button class="icon" data-nudge="-1" aria-label="1 slower">&minus;1</button>
+          <input type="range" id="tempo-slider" min="20" max="300" step="1" aria-label="Speed in beats per minute">
+          <button class="icon" data-nudge="1" aria-label="1 faster">+1</button>
+          <button class="icon" data-nudge="5" aria-label="5 faster">+5</button>
+        </div>
+        <div class="row tempo-actions">
+          <button id="tempo-play">&#9654; Play my notes</button>
+          <button id="tempo-save" aria-pressed="false">&#9825; Save to favorites</button>
+        </div>
+        <h3>Favorites</h3>
+        <div id="tempo-favs"></div>
+      </div>
     </div>
   </div>
 

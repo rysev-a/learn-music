@@ -3,7 +3,8 @@ import {
   barIssues, barLength, beatsOf, diatonic, keySignature, emptyScore, endTime, timeline, formatPitch, fromDiatonic, hasSecondVoice, keyAlterations,
   parsePitch, startOf, stringifyScore, validateScore, voiceNotes,
 } from './score.js';
-import { DEFAULT_ORDER, PALETTE, REQUIRED, hiddenTools, normalizeColors, normalizeOrder, placeTool, removeGaps, removeTool, withColor } from './panel.js';
+import { DEFAULT_ORDER, LEGACY_TOOLS, PALETTE, REQUIRED, addNewTools, hiddenTools, normalizeColors, normalizeOrder, placeTool, removeGaps, removeTool, withColor } from './panel.js';
+import { TEMPO_DEFAULT, TEMPO_MAX, TEMPO_MIN, addFav, clampTempo, hasFav, normalizeFavs, removeFav, tempoName } from './tempo.js';
 import { deleteBar, deleteNote, insertIndex, placeNote } from './edit.js';
 import { BAR_PAD_L, BAR_PAD_R, STEP, barAt, bottomDia, hitTest, layoutScore, renderScore } from './render.js';
 import { compare } from './checker.js';
@@ -18,7 +19,7 @@ const WHICH = ['original', 'mine'];
 const LABELS = { original: 'Original', mine: 'My notes' };
 const $ = (sel, root = document) => root.querySelector(sel);
 const clone = (x) => JSON.parse(JSON.stringify(x));
-const BUILD = '2026-11-15.4';
+const BUILD = '2026-11-15.5';
 const PIANO_W_MIN = 20; // narrowest / widest white key of the piano board (pinch changes it)
 const PIANO_W_MAX = 100;
 $('#build').textContent = `build ${BUILD}`;
@@ -42,15 +43,15 @@ function loadSaved() {
     const raw = JSON.parse(localStorage.getItem(STORE_KEY));
     const o = validateScore(raw?.original);
     const m = validateScore(raw?.mine);
-    if (o.ok && m.ok) return { original: o.score, mine: m.score, hideOriginal: !!raw.hideOriginal, lib: raw.lib, octave: raw.octave, zoom: raw.zoom, grid: raw.grid, piano: raw.piano, pianoW: raw.pianoW, pianoPos: raw.pianoPos, sound: raw.sound, panel: raw.panel, panelColors: raw.panelColors };
+    if (o.ok && m.ok) return { original: o.score, mine: m.score, hideOriginal: !!raw.hideOriginal, lib: raw.lib, octave: raw.octave, zoom: raw.zoom, grid: raw.grid, piano: raw.piano, pianoW: raw.pianoW, pianoPos: raw.pianoPos, sound: raw.sound, panel: raw.panel, panelColors: raw.panelColors, panelSeen: raw.panelSeen, tempoFavs: raw.tempoFavs };
   } catch {}
   return null;
 }
 
 const saved = loadSaved();
 const state = {
-  original: saved?.original ?? clone(LIBRARY[0].exercises[0].score),
-  mine: saved?.mine ?? emptyScore({ title: 'My notes' }),
+  original: saved?.original ?? { ...clone(LIBRARY[0].exercises[0].score), tempo: TEMPO_DEFAULT },
+  mine: saved?.mine ?? emptyScore({ title: 'My notes', tempo: TEMPO_DEFAULT }),
   hideOriginal: saved?.hideOriginal ?? false,
   zoom: Number.isFinite(saved?.zoom) ? clamp(saved.zoom, ZOOM_MIN, ZOOM_MAX) : innerWidth < 640 ? 0.65 : 1, // scale of the notes: the staff is laid out at width / zoom
   lib: validLib(saved?.lib), // which piece / exercise of the library the Original came from
@@ -71,6 +72,8 @@ const state = {
   sound: SOUNDS.some((s) => s.id === saved?.sound) ? saved.sound : 'recorded', // instrument (see SOUNDS in voices.js)
   panel: normalizeOrder(saved?.panel), // layout of the full-screen tool panel (see panel.js)
   panelColors: normalizeColors(saved?.panelColors), // icon colour of tools on the panel: { toolId: '#rrggbb' }
+  panelSeen: [], // the tools this layout already knew about (so a tool hidden on purpose stays hidden, a new one is added)
+  tempoFavs: normalizeFavs(saved?.tempoFavs), // favourite speeds (BPM)
   barView: false, // full screen: one bar fills the screen, split by dotted lines to put notes on
   barIndex: 0, // which bar the one-bar view shows (zero-based)
   grid: GRIDS.some(([k]) => k === saved?.grid) ? saved.grid : '4',
@@ -80,11 +83,19 @@ const state = {
   result: null,
   playing: null, // { which, stop }
 };
+{
+  const seen = Array.isArray(saved?.panelSeen) ? saved.panelSeen : saved?.panel ? LEGACY_TOOLS : DEFAULT_ORDER;
+  const joined = addNewTools(state.panel, seen);
+  const changed = JSON.stringify(joined.order) !== JSON.stringify(state.panel) || !Array.isArray(saved?.panelSeen);
+  state.panel = joined.order;
+  state.panelSeen = joined.seen;
+  if (changed && saved) queueMicrotask(() => persist()); // write the migrated layout back (persist is defined further down)
+}
 const layouts = { original: null, mine: null };
 
 function persist() {
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify({ original: state.original, mine: state.mine, hideOriginal: state.hideOriginal, lib: state.lib, octave: state.octave, zoom: state.zoom, grid: state.grid, piano: state.piano, pianoW: state.pianoW, pianoPos: state.pianoPos, sound: state.sound, panel: state.panel, panelColors: state.panelColors }));
+    localStorage.setItem(STORE_KEY, JSON.stringify({ original: state.original, mine: state.mine, hideOriginal: state.hideOriginal, lib: state.lib, octave: state.octave, zoom: state.zoom, grid: state.grid, piano: state.piano, pianoW: state.pianoW, pianoPos: state.pianoPos, sound: state.sound, panel: state.panel, panelColors: state.panelColors, panelSeen: state.panelSeen, tempoFavs: state.tempoFavs }));
   } catch {}
 }
 
@@ -277,9 +288,10 @@ function buildCards() {
 function loadExercise(piece, ex) {
   const o = LIBRARY[piece].exercises[ex].score;
   commit(() => {
+    const speed = state.mine.tempo; // the chosen speed stays, whatever tempo the exercise was written in
     state.lib = { piece, ex };
-    state.original = clone(o);
-    state.mine = emptyScore({ title: 'My notes', clef: o.clef, key: o.key, time: o.time, tempo: o.tempo });
+    state.original = { ...clone(o), tempo: speed };
+    state.mine = emptyScore({ title: 'My notes', clef: o.clef, key: o.key, time: o.time, tempo: speed });
     state.selected = null;
     state.cursor = null;
     state.voiceChoice = null;
@@ -930,6 +942,8 @@ function syncToolbar() {
   }
   $('#tool-voice').dataset.strict = String(strict());
   for (const b of document.querySelectorAll('[data-voice]')) b.setAttribute('aria-pressed', String(Number(b.dataset.voice) === activeVoice()));
+  $('#tempo-value').textContent = String(state.mine.tempo);
+  $('#tempo-play').innerHTML = state.playing?.which === 'mine' ? '&#9632; Stop' : '&#9654; Play my notes';
   $('#undo').disabled = history.length === 0;
   $('#redo').disabled = future.length === 0;
   $('#full-play').textContent = state.playing?.which === 'mine' ? '\u25A0' : '\u25B6';
@@ -1724,6 +1738,86 @@ function bindNoteDrag() {
 bindNoteDrag();
 
 
+
+// ---------- speed ----------
+// One speed for both staves: the tempo written in the scores. The slider changes it as it moves; nudge buttons give
+// fine steps; the favourites keep the speeds worth coming back to.
+
+const speed = () => state.mine.tempo;
+
+/** Show the speed everywhere without redrawing the staves (cheap enough to run on every slider movement). */
+function showSpeed() {
+  const v = speed();
+  $('#tempo-value').textContent = String(v);
+  $('#tempo-num').textContent = String(v);
+  $('#tempo-name').textContent = tempoName(v);
+  $('#tempo-slider').value = String(v);
+  for (const el of document.querySelectorAll('[data-meta=tempo]')) el.value = String(v);
+  const fav = hasFav(state.tempoFavs, v);
+  const save = $('#tempo-save');
+  save.setAttribute('aria-pressed', String(fav));
+  save.innerHTML = fav ? '&#9829; In favorites (tap to remove)' : '&#9825; Save to favorites';
+  $('#tempo-favs').innerHTML = state.tempoFavs.length
+    ? state.tempoFavs
+        .map((b) => `<span class="fav${b === v ? ' current' : ''}"><button class="fav-set" data-fav="${b}" title="${tempoName(b)}">${b}</button><button class="fav-del" data-fav-del="${b}" aria-label="Remove ${b} from favorites">&times;</button></span>`)
+        .join('')
+    : '<span class="muted">Nothing saved yet: set a speed, then tap "Save to favorites".</span>';
+}
+
+function setSpeed(bpm, final = true) {
+  const v = clampTempo(bpm);
+  if (v !== speed() || final) {
+    state.mine.tempo = v;
+    state.original.tempo = v;
+  }
+  showSpeed();
+  if (final) {
+    persist();
+    render(); // the staves and the tempo fields follow
+  }
+}
+
+function openTempoModal() {
+  $('#tempo-slider').min = String(TEMPO_MIN);
+  $('#tempo-slider').max = String(TEMPO_MAX);
+  showSpeed();
+  $('#tempo-modal').hidden = false;
+  document.body.classList.add('modal-open');
+}
+
+function closeTempoModal() {
+  $('#tempo-modal').hidden = true;
+  document.body.classList.remove('modal-open');
+}
+
+function bindTempoModal() {
+  $('#tempo-open').addEventListener('click', openTempoModal);
+  $('#tempo-close').addEventListener('click', closeTempoModal);
+  const modal = $('#tempo-modal');
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) return closeTempoModal(); // the backdrop
+    const nudge = e.target.closest('[data-nudge]')?.dataset.nudge;
+    const fav = e.target.closest('[data-fav]')?.dataset.fav;
+    const del = e.target.closest('[data-fav-del]')?.dataset.favDel;
+    if (nudge) setSpeed(speed() + Number(nudge));
+    else if (fav) setSpeed(Number(fav));
+    else if (del) {
+      state.tempoFavs = removeFav(state.tempoFavs, Number(del));
+      persist();
+      showSpeed();
+    } else if (e.target.closest('#tempo-save')) {
+      state.tempoFavs = hasFav(state.tempoFavs, speed()) ? removeFav(state.tempoFavs, speed()) : addFav(state.tempoFavs, speed());
+      persist();
+      showSpeed();
+    } else if (e.target.closest('#tempo-play')) togglePlay('mine');
+  });
+  $('#tempo-slider').addEventListener('input', (e) => setSpeed(Number(e.target.value), false)); // live, no redraw
+  $('#tempo-slider').addEventListener('change', (e) => setSpeed(Number(e.target.value))); // let go: save and redraw
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !modal.hidden) closeTempoModal();
+  });
+}
+
 // ---------- tool panel layout ----------
 // In full screen the tools of the right-hand panel follow state.panel: a list of tool ids and null (an empty cell).
 // Each tool gets that position as its CSS `order`, a null becomes a gap cell, a tool that is not listed is hidden.
@@ -1739,7 +1833,7 @@ const PANEL_TOOLS = {
   erase: '#erase', 'erase-note': '[data-erase="note"]', 'erase-bar': '[data-erase="bar"]',
   undo: '#undo', redo: '#redo', check: '#check',
   play: '#full-play', 'zoom-out': '#full-zoom-out', 'zoom-in': '#full-zoom-in', 'bar-mode': '#bar-mode', pin: '#board-pin',
-  settings: '#panel-settings', exit: '#full-exit',
+  settings: '#panel-settings', exit: '#full-exit', tempo: '#tempo-open',
   'bar-prev': '#bar-prev', 'bar-label': '#bar-label', 'bar-next': '#bar-next', 'grid-size': '#grid-size',
 };
 const PANEL_NAMES = {
@@ -1748,7 +1842,7 @@ const PANEL_NAMES = {
   piano: 'Piano keys', sound: 'Sound', erase: 'Eraser', 'erase-note': 'Erase a note', 'erase-bar': 'Erase a bar',
   undo: 'Undo', redo: 'Redo', check: 'Check', play: 'Play', 'zoom-out': 'Smaller notes', 'zoom-in': 'Larger notes',
   'bar-mode': 'One-bar view', pin: 'Fix position and zoom', settings: 'Panel layout (stays)', exit: 'Leave full screen (stays)',
-  'bar-prev': 'Previous bar', 'bar-label': 'Bar number', 'bar-next': 'Next bar', 'grid-size': 'Split size',
+  'bar-prev': 'Previous bar', 'bar-label': 'Bar number', 'bar-next': 'Next bar', 'grid-size': 'Split size', tempo: 'Speed (BPM)',
 };
 const PANEL_IDS = Object.keys(PANEL_TOOLS);
 // these show only when they apply (the one-bar view, the eraser being on); their cell stays empty meanwhile
@@ -1790,7 +1884,7 @@ function applyPanel() {
 }
 
 function panelChip(id) {
-  const icon = id === 'sound' ? '&#9834;' : id === 'grid-size' ? GRIDS.find(([k]) => k === state.grid)?.[1] : id === 'bar-label' ? 'n/N' : (toolEl(id)?.innerHTML ?? id);
+  const icon = id === 'tempo' ? `<span class="tempo-ico">&#9833;</span><span class="tv">${state.mine.tempo}</span>` : id === 'sound' ? '&#9834;' : id === 'grid-size' ? GRIDS.find(([k]) => k === state.grid)?.[1] : id === 'bar-label' ? 'n/N' : (toolEl(id)?.innerHTML ?? id);
   const fixed = REQUIRED.includes(id) ? ' fixed' : '';
   const cond = PANEL_CONDITIONAL[id] ? ' cond' : '';
   const name = PANEL_NAMES[id] + (PANEL_CONDITIONAL[id] ? ` (only in the ${PANEL_CONDITIONAL[id]})`.replace('in the eraser on', 'while the eraser is on') : '');
@@ -2009,6 +2103,7 @@ new ResizeObserver(() => {
 
 buildCards();
 bindPanelEditor();
+bindTempoModal();
 setSound(state.sound);
 setTimeout(warmUp, 600);
 buildLibrary();

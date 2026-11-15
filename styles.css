@@ -633,3 +633,34 @@ html.full .toolbar [data-tc]:not([aria-pressed='true']):not(.active) { color: va
   .swatch { width: 30px; height: 30px; min-width: 30px; }
   #panel-hint { margin: 4px 0 8px; font-size: 12px; }
 }
+
+/* speed: the panel button shows the BPM; the modal has the slider, fine steps and the favourites */
+button.tempo-btn { flex-direction: column; gap: 0; line-height: 1; padding: 0 2px; }
+.tempo-ico { font-size: 10px; opacity: .7; }
+#tempo-value, .pchip .tv { font-size: 14px; font-weight: 700; }
+.pchip .tempo-ico { display: block; }
+.pchip:has(.tv) { flex-direction: column; line-height: 1; }
+#tempo-body { overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 6px 16px 18px; }
+.tempo-big { display: flex; align-items: baseline; justify-content: center; gap: 8px; margin-top: 4px; }
+.tempo-big span { font-size: 56px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.tempo-big small { font-size: 14px; color: var(--muted); }
+.tempo-name { text-align: center; color: var(--muted); margin-bottom: 10px; }
+.tempo-slide { display: flex; align-items: center; gap: 6px; }
+.tempo-slide input[type='range'] { flex: 1; min-width: 0; height: 44px; accent-color: var(--accent); touch-action: pan-y; }
+.tempo-slide button { min-width: 42px; height: 42px; padding: 0 6px; font-size: 13px; }
+.tempo-actions { margin-top: 14px; gap: 8px; flex-wrap: wrap; }
+.tempo-actions button { min-height: 42px; padding: 0 14px; }
+#tempo-save[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: #fff; }
+#tempo-body h3 { margin: 18px 0 8px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+#tempo-favs { display: flex; flex-wrap: wrap; gap: 8px; }
+.fav { display: inline-flex; align-items: stretch; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.fav.current { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.fav button { border: 0; border-radius: 0; min-height: 40px; background: var(--card); }
+.fav .fav-set { min-width: 54px; font-size: 16px; font-weight: 600; }
+.fav .fav-del { min-width: 34px; padding: 0; color: var(--muted); border-left: 1px solid var(--line); }
+@media (max-height: 500px) {
+  .tempo-big span { font-size: 38px; }
+  .tempo-name { margin-bottom: 4px; }
+  .tempo-actions { margin-top: 6px; }
+  #tempo-body h3 { margin-top: 10px; }
+}

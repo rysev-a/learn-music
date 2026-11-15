@@ -6,9 +6,10 @@ import { renderScore, hitTest, layoutScore, gridLines } from '../src/render.js';
 import { readFileSync } from 'node:fs';
 import { LIBRARY, allExercises, setLibrary } from '../src/library.js';
 import { keyLayout, lookupKey, keyFromCode } from '../src/keyboard.js';
+import { MAX_FAVORITES, TEMPO_DEFAULT, addFav, clampTempo, normalizeFavs, removeFav, tempoName } from '../src/tempo.js';
 import { pianoSamples, sampleName, SOUNDS, SOUND_GROUPS } from '../src/audio.js';
 import { renderVoice } from '../src/voices.js';
-import { DEFAULT_ORDER, PALETTE, REQUIRED, normalizeColors, normalizeOrder, placeTool, removeTool, removeGaps, hiddenTools, withColor } from '../src/panel.js';
+import { LEGACY_TOOLS, addNewTools, DEFAULT_ORDER, PALETTE, REQUIRED, normalizeColors, normalizeOrder, placeTool, removeTool, removeGaps, hiddenTools, withColor } from '../src/panel.js';
 import { placeNote, insertIndex, deleteNote, restsFor, deleteBar } from '../src/edit.js';
 
 assert.ok(setLibrary(JSON.parse(readFileSync(new URL('../init.json', import.meta.url), 'utf8'))), 'init.json is a valid library');
@@ -368,4 +369,38 @@ test('tool icon colours: only known tools and #rrggbb survive, set and reset', (
   assert.deepEqual(withColor({ undo: '#e03131', redo: '#2f9e44' }, 'undo', null), { redo: '#2f9e44' });
   assert.ok(PALETTE.every(([name, hex]) => name && /^#[0-9a-f]{6}$/.test(hex)));
   assert.equal(new Set(PALETTE.map((p) => p[1])).size, PALETTE.length);
+});
+
+test('speed: limits, favourites, names', () => {
+  assert.equal(TEMPO_DEFAULT, 120);
+  assert.equal(clampTempo(120.4), 120);
+  assert.equal(clampTempo(5), 20);
+  assert.equal(clampTempo(999), 300);
+  assert.equal(clampTempo('abc'), 120);
+  assert.equal(clampTempo(null), 120);
+  assert.deepEqual(normalizeFavs([90, 60, 90, 'x', 2.5, 5, 400, 120]), [60, 90, 120]);
+  assert.deepEqual(normalizeFavs('nope'), []);
+  assert.deepEqual(addFav([60, 120], 90), [60, 90, 120]);
+  assert.deepEqual(addFav([60, 120], 120), [60, 120]);
+  assert.deepEqual(removeFav([60, 90, 120], 90), [60, 120]);
+  const full = Array.from({ length: MAX_FAVORITES }, (_, i) => 40 + i);
+  assert.deepEqual(addFav(full, 200), full, 'a full list does not grow');
+  assert.equal(tempoName(40), 'Grave');
+  assert.equal(tempoName(120), 'Allegro');
+  assert.equal(tempoName(200), 'Presto');
+});
+
+test('tool panel: a tool added later joins a saved layout, unless it was hidden on purpose', () => {
+  assert.ok(!LEGACY_TOOLS.includes('tempo') && DEFAULT_ORDER.includes('tempo'));
+  // a layout saved before the speed tool: it gets the first empty cell
+  const saved = ['dur-w', null, 'dur-h', 'settings', 'exit'];
+  const r = addNewTools(saved, LEGACY_TOOLS);
+  assert.deepEqual(r.order, ['dur-w', 'tempo', 'dur-h', 'settings', 'exit']);
+  assert.ok(r.seen.includes('tempo'));
+  // no empty cell: at the end
+  assert.deepEqual(addNewTools(['dur-w', 'exit'], LEGACY_TOOLS).order, ['dur-w', 'exit', 'tempo']);
+  // already known (the user hid it): it stays hidden
+  assert.deepEqual(addNewTools(['dur-w', 'exit'], DEFAULT_ORDER).order, ['dur-w', 'exit']);
+  // nothing new: nothing changes
+  assert.deepEqual(addNewTools(saved, DEFAULT_ORDER).order, saved);
 });

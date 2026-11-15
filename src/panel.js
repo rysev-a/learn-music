@@ -14,13 +14,17 @@ export const DEFAULT_ORDER = [
   'dur-e', 'dot', 'acc-#',
   'acc-b', 'acc-n', 'voice-1',
   'voice-2', 'rest', 'piano',
-  'sound', 'undo', 'redo',
+  'sound', 'tempo', 'undo',
+  'redo', 'check', 'play',
   'erase', 'erase-note', 'erase-bar',
-  'check', 'play', 'pin',
-  'zoom-out', 'zoom-in', 'settings',
-  'bar-mode', 'bar-prev', 'bar-next',
-  'bar-label', 'grid-size', 'exit',
+  'pin', 'zoom-out', 'zoom-in',
+  'settings', 'bar-mode', 'bar-prev',
+  'bar-next', 'bar-label', 'grid-size',
+  'exit',
 ];
+
+/** The tools a layout saved before the speed tool existed knew about. */
+export const LEGACY_TOOLS = DEFAULT_ORDER.filter((id) => id !== 'tempo');
 
 const trim = (order) => {
   const out = [...order];
@@ -92,4 +96,23 @@ export function withColor(colors, id, color) {
   if (color) out[id] = color;
   else delete out[id];
   return normalizeColors(out, Object.keys(out).concat(id));
+}
+
+/**
+ * Put tools that are new since the layout was saved onto it: `seen` lists the tools the user's layout already knew, so
+ * a tool the user hid on purpose stays hidden. A new tool takes the first empty cell, else the end.
+ * @returns {{ order: (string|null)[], seen: string[] }}
+ */
+export function addNewTools(order, seen, all = DEFAULT_ORDER) {
+  const out = [...order];
+  const known = new Set(seen);
+  for (const id of all) {
+    if (known.has(id)) continue;
+    known.add(id);
+    if (out.includes(id)) continue;
+    const gap = out.indexOf(null);
+    if (gap >= 0) out[gap] = id;
+    else out.push(id);
+  }
+  return { order: trim(out), seen: [...known] };
 }
