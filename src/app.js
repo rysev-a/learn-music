@@ -7,7 +7,7 @@ import { deleteBar, deleteNote, insertIndex, placeNote } from './edit.js';
 import { BAR_PAD_L, BAR_PAD_R, STEP, barAt, bottomDia, hitTest, layoutScore, renderScore } from './render.js';
 import { compare } from './checker.js';
 import { MAX_BASE, MIN_BASE, keyFromCode, keyLayout, lookupKey } from './keyboard.js';
-import { SOUNDS, beep, demo, playScore, setSound, warmUp } from './audio.js';
+import { SOUNDS, SOUND_GROUPS, beep, demo, playScore, setSound, warmUp } from './audio.js';
 import { LIBRARY, loadLibrary } from './library.js';
 
 await loadLibrary(); // init.json -> LIBRARY (before any state is built)
@@ -17,7 +17,7 @@ const WHICH = ['original', 'mine'];
 const LABELS = { original: 'Original', mine: 'My notes' };
 const $ = (sel, root = document) => root.querySelector(sel);
 const clone = (x) => JSON.parse(JSON.stringify(x));
-const BUILD = '2026-11-14.10';
+const BUILD = '2026-11-15.1';
 const PIANO_W_MIN = 20; // narrowest / widest white key of the piano board (pinch changes it)
 const PIANO_W_MAX = 100;
 $('#build').textContent = `build ${BUILD}`;
@@ -568,6 +568,67 @@ function onStaffMove(which, e) {
 }
 
 
+
+// ---------- sound picker ----------
+
+const soundName = (id) => SOUNDS.find((v) => v.id === id)?.name ?? '';
+
+function buildSoundModal() {
+  $('#sound-list').innerHTML = SOUND_GROUPS.map(
+    (g) =>
+      `<h3>${g.name}</h3>` +
+      g.sounds
+        .map(
+          (v) =>
+            `<div class="sm-row" data-id="${v.id}">` +
+            `<button class="icon sm-play" data-play="${v.id}" title="Listen" aria-label="Listen: ${v.name}">&#9654;</button>` +
+            `<button class="sm-pick" data-pick="${v.id}"><span>${v.name}</span><span class="sm-tick">&#10003;</span></button>` +
+            `</div>`
+        )
+        .join('')
+  ).join('');
+  $('#sound-open').addEventListener('click', openSoundModal);
+  $('#sound-close').addEventListener('click', closeSoundModal);
+  $('#sound-modal').addEventListener('click', (e) => {
+    if (e.target.id === 'sound-modal') return closeSoundModal(); // the backdrop
+    const play = e.target.closest('[data-play]')?.dataset.play;
+    const pick = e.target.closest('[data-pick]')?.dataset.pick;
+    if (play) {
+      demo(play); // listen without choosing
+      for (const b of document.querySelectorAll('.sm-play')) b.classList.toggle('on', b.dataset.play === play);
+    } else if (pick) {
+      state.sound = pick;
+      setSound(pick);
+      persist();
+      renderSoundButton();
+      demo(pick);
+      closeSoundModal();
+    }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !$('#sound-modal').hidden) closeSoundModal();
+  });
+  renderSoundButton();
+}
+
+function renderSoundButton() {
+  $('#sound-name').textContent = soundName(state.sound);
+  for (const row of document.querySelectorAll('.sm-row')) row.classList.toggle('current', row.dataset.id === state.sound);
+}
+
+function openSoundModal() {
+  renderSoundButton();
+  $('#sound-modal').hidden = false;
+  document.body.classList.add('modal-open');
+  $('.sm-row.current')?.scrollIntoView({ block: 'center' });
+}
+
+function closeSoundModal() {
+  $('#sound-modal').hidden = true;
+  document.body.classList.remove('modal-open');
+  for (const b of document.querySelectorAll('.sm-play')) b.classList.remove('on');
+}
+
 // ---------- piano board ----------
 // 88 keys (A0 to C8) along the bottom. One finger drags the keys sideways (with a little momentum), two fingers
 // pinch to change the key width; a tap enters that pitch, with the length chosen in the toolbar.
@@ -1043,14 +1104,7 @@ function bindToolbar() {
     state.eraseMode = mode;
     render();
   });
-  $('#sound-select').innerHTML = SOUNDS.map((s) => `<option value="${s.id}">${s.name}</option>`).join('');
-  $('#sound-select').value = state.sound;
-  $('#sound-select').addEventListener('change', (e) => {
-    state.sound = e.target.value;
-    setSound(state.sound);
-    persist();
-    demo(); // hear it at once
-  });
+  buildSoundModal();
   $('#piano-toggle').addEventListener('click', () => {
     state.piano = !state.piano;
     persist();

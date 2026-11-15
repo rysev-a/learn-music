@@ -82,7 +82,7 @@
           </button>
         </div>
         <div class="group" id="tool-sound">
-          <select id="sound-select" title="Sound: pick one and a short chord plays" aria-label="Sound"></select>
+          <button id="sound-open" class="sound-open" aria-haspopup="dialog" title="Choose the sound" aria-label="Choose the sound"><span class="note-ico" aria-hidden="true">♪</span><span id="sound-name"></span></button>
         </div>
         <div class="group" id="tool-erase">
           <button class="icon" id="erase" aria-pressed="false" title="Erase: tap a note or a bar to delete it" aria-label="Erase">
@@ -172,6 +172,17 @@
 
   <!-- piano keys along the bottom: tap to enter a note, drag sideways to move, pinch to change the key width -->
   <div id="piano" hidden><div id="piano-keys"></div></div>
+
+  <!-- sound picker: 50 sounds in groups, a play icon on each to hear it before choosing -->
+  <div id="sound-modal" hidden>
+    <div class="sm-box" role="dialog" aria-modal="true" aria-label="Sound">
+      <div class="sm-head">
+        <h2>Sound</h2>
+        <button class="icon" id="sound-close" title="Close" aria-label="Close">✕</button>
+      </div>
+      <div id="sound-list"></div>
+    </div>
+  </div>
 
   <footer id="build"></footer>
 

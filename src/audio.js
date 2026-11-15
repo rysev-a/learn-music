@@ -1,7 +1,7 @@
 import { REST, beatsOf, midi, parsePitch, voiceNotes, voicesOf } from './score.js';
-import { SOUNDS, pianoSamples, renderVoice } from './voices.js';
+import { SOUNDS, SOUND_GROUPS, pianoSamples, renderVoice } from './voices.js';
 
-export { SOUNDS, pianoSamples };
+export { SOUNDS, SOUND_GROUPS, pianoSamples };
 
 // The sound is the recorded piano in sounds/piano (or one of the synthesized voices in voices.js). Until a recording is loaded (and for keys outside its range) a
 // synthesized piano stands in: additive synthesis, every note rendered once into a buffer (a few slightly inharmonic
@@ -131,17 +131,18 @@ function synthBuffer(c, id, m) {
   const key = `${id}:${m}`;
   let buf = synth.get(key);
   if (!buf) {
-    const data = renderVoice(id, m, c.sampleRate);
-    buf = c.createBuffer(1, data.length, c.sampleRate);
+    const rate = c.sampleRate / (SOUNDS.find((v) => v.id === id)?.div ?? 1); // soft voices are made at half rate, the browser resamples
+    const data = renderVoice(id, m, rate);
+    buf = c.createBuffer(1, data.length, rate);
     buf.copyToChannel(data, 0);
     synth.set(key, buf);
   }
   return buf;
 }
 
-function bufferFor(c, pitch) {
+function bufferFor(c, pitch, id = sound) {
   const m = midi(parsePitch(pitch));
-  if (sound !== 'recorded') return synthBuffer(c, sound, m);
+  if (id !== 'recorded') return synthBuffer(c, id, m);
   const buf = recorded.get(m);
   if (buf) return buf;
   load(c, m); // not there yet: start fetching it, play the synthesized piano this time
@@ -149,9 +150,9 @@ function bufferFor(c, pitch) {
 }
 
 /** Strike a key at `start`, let go after `dur` seconds (a short release, so it does not stop with a click). */
-function tone(c, pitch, start, dur, volume = 0.5) {
+function tone(c, pitch, start, dur, volume = 0.5, id = sound) {
   const src = c.createBufferSource();
-  const buf = bufferFor(c, pitch);
+  const buf = bufferFor(c, pitch, id);
   src.buffer = buf;
   const gain = c.createGain();
   gain.gain.setValueAtTime(volume, start);
@@ -186,11 +187,22 @@ export function beep(pitch) {
   }
 }
 
-/** A short arpeggio in the current sound, to compare the sounds by ear. */
-export function demo() {
+const DEMO = ['C4', 'E4', 'G4', 'C5', 'G4'];
+let demoRun = 0;
+/**
+ * A short arpeggio, to compare sounds by ear: in the sound `id` (default: the chosen one). The notes are prepared one
+ * by one with a pause between (a slow phone must not freeze), then played together; a newer call replaces an older one.
+ */
+export async function demo(id = sound) {
+  const run = ++demoRun;
   try {
     const c = audio();
-    ['C4', 'E4', 'G4', 'C5', 'G4'].forEach((p, i) => tone(c, p, c.currentTime + 0.05 + i * 0.26, i === 4 ? 1.2 : 0.5, 0.5));
+    for (const p of new Set(DEMO)) {
+      bufferFor(c, p, id);
+      await new Promise((r) => setTimeout(r, 0));
+      if (run !== demoRun) return;
+    }
+    DEMO.forEach((p, i) => tone(c, p, c.currentTime + 0.05 + i * 0.26, i === DEMO.length - 1 ? 1.2 : 0.5, 0.5, id));
   } catch {}
 }
 
