@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Rubik's cube: 3D + flat diagram</title>
+<style>
+  :root { color-scheme: light dark; --bg:#f3f4f6; --fg:#111; --panel:#fff; --line:#d0d3d9; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#14161a; --fg:#eee; --panel:#1e2127; --line:#353a44; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px system-ui,sans-serif; background:var(--bg); color:var(--fg); }
+  main { max-width:1100px; margin:0 auto; padding:16px; }
+  h1 { font-size:20px; margin:0 0 12px; }
+  .views { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  @media (max-width:760px) { .views { grid-template-columns:1fr; } }
+  .view { background:var(--panel); border:1px solid var(--line); border-radius:10px; height:min(60vw,420px); min-height:260px; position:relative; }
+  .view small { position:absolute; left:10px; top:6px; opacity:.6; z-index:1; }
+  .controls { margin-top:12px; display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+  .controls .sep { width:12px; }
+  button { font:inherit; padding:6px 10px; min-width:38px; border:1px solid var(--line); border-radius:6px; background:var(--panel); color:var(--fg); cursor:pointer; }
+  button:hover { border-color:#888; }
+  #hist { margin-top:10px; min-height:1.4em; font-family:ui-monospace,monospace; opacity:.8; word-break:break-word; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Rubik's cube</h1>
+  <div class="views">
+    <div class="view" id="v3d"><small>3D (drag to rotate)</small></div>
+    <div class="view" id="vflat"><small>flat diagram</small></div>
+  </div>
+  <div class="controls" id="controls"></div>
+  <div id="hist"></div>
+</main>
+<script type="module" src="./app.js"></script>
+</body>
+</html>
