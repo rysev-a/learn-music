@@ -147,7 +147,7 @@ function beamGroups(score, voice, tl) {
  * mode.bare: no clef and no time signature at the left, only the key signature's sharps / flats.
  */
 export function layoutScore(score, width, wrap = true, fill = false, stretch = false, mode = null) {
-  const { timed = false, bare = false } = mode ?? {};
+  const { timed = false, bare = false, maxBars = 0 } = mode ?? {}; // maxBars: at most this many bars on a line (0 = no limit)
   const bDia = bottomDia(score.clef);
   const ks = keySignature(score.key);
   const L = barLength(score);
@@ -207,7 +207,7 @@ export function layoutScore(score, width, wrap = true, fill = false, stretch = f
   const systems = [];
   let cur = null;
   for (const bar of laid) {
-    if (!cur || (cur.bars.length && cur.used + bar.w > avail)) {
+    if (!cur || (cur.bars.length && (cur.used + bar.w > avail || (maxBars && cur.bars.length >= maxBars)))) {
       const header = headerW(systems.length === 0);
       cur = { bars: [], header, used: header };
       systems.push(cur);
@@ -217,6 +217,8 @@ export function layoutScore(score, width, wrap = true, fill = false, stretch = f
   }
   if (!systems.length) systems.push({ bars: [], header: headerW(true), used: headerW(true) });
 
+  // an endless line has no width to fill; with a bar limit every full line is stretched to the widest one
+  const lineW = Number.isFinite(avail) ? avail : Math.max(...systems.map((s) => s.used));
   const pos = { 1: [], 2: [] };
   const slots = [];
   let maxX = width;
@@ -227,7 +229,7 @@ export function layoutScore(score, width, wrap = true, fill = false, stretch = f
     sys.staffBottom = sys.staffTop + STAFF_H;
     sys.x0 = MARGIN_X;
     const body = sys.used - sys.header;
-    const scale = (last && !stretch) || !body ? 1 : Math.max(1, (avail - sys.header) / body); // stretch: even the last system fills the width
+    const scale = (last && !stretch) || !body ? 1 : Math.max(1, (lineW - sys.header) / body); // stretch: even the last system fills the width
     let offset = 0;
     const timeLeft = sys.x0 + sys.header + BAR_PAD_L;
     const timeRight = sys.x0 + avail - (timed ? BAR_PAD_R : 0);
@@ -279,10 +281,10 @@ export function timeToX(layout, t) {
 }
 
 /** @returns {{ svg: string, layout: object }} */
-export function renderScore(score, { width = 860, wrap = true, status = {}, selected = null, cursor = null, dim = null, fill = false, stretch = false, plain = false, bar = null, base = null, timed = false, bare = false } = {}) {
+export function renderScore(score, { width = 860, wrap = true, status = {}, selected = null, cursor = null, dim = null, fill = false, stretch = false, plain = false, bar = null, base = null, timed = false, bare = false, maxBars = 0 } = {}) {
   // bar: { length, size } draws dotted grid lines (size in beats) over a one-bar slice; base: index of the slice's
   // first note in the whole voice, so data-i / selection / status refer to the real notes; plain: no final bar line
-  const layout = layoutScore(score, width, wrap, fill, stretch, { timed, bare });
+  const layout = layoutScore(score, width, wrap, fill, stretch, { timed, bare, maxBars });
   const at = (v) => base?.[v] ?? 0;
   if (bar) layout.grid = gridLines(layout, bar.length, bar.size);
   const { systems, bDia, ks } = layout;

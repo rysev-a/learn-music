@@ -242,6 +242,22 @@ test('piano samples: finite, normalised, decaying, and lower notes ring longer',
   assert.ok(c2.length > a4.length, 'low notes are longer');
 });
 
+test('endless board with a bar limit: at most 5 bars on a line, the lines go down', () => {
+  const notes = Array.from({ length: 12 * 4 }, () => q('C4')); // 12 bars of 4/4
+  const s = score(notes, { time: '4/4' });
+  const endless = layoutScore(s, 0, false);
+  assert.equal(endless.systems.length, 1);
+  const wrapped = layoutScore(s, 0, false, false, false, { maxBars: 5 });
+  assert.deepEqual(wrapped.systems.map((sys) => sys.bars.length), [5, 5, 2]);
+  assert.ok(wrapped.height > endless.height && wrapped.width < endless.width);
+  // full lines are equally wide, so the bar lines line up; the notes keep their order
+  const ends = wrapped.systems.slice(0, 2).map((sys) => sys.x1);
+  assert.ok(Math.abs(ends[0] - ends[1]) < 1e-6);
+  assert.ok(wrapped.systems.every((sys) => Number.isFinite(sys.x1)));
+  assert.equal(wrapped.pos[1].length, notes.length);
+  assert.deepEqual([0, 19, 20, 39, 40, 47].map((i) => wrapped.pos[1][i].system), [0, 0, 1, 1, 2, 2]);
+});
+
 test('one-bar view: beats are equally wide and the dotted lines are equally spaced', () => {
   const s = score([q('C4'), { pitch: 'D4', dur: 'e' }, { pitch: 'E4', dur: 'e' }, { pitch: 'F4', dur: 'h' }], { time: '4/4' });
   const mode = { timed: true, bare: true };
@@ -392,13 +408,14 @@ test('speed: limits, favourites, names', () => {
 
 test('tool panel: a tool added later joins a saved layout, unless it was hidden on purpose', () => {
   assert.ok(!LEGACY_TOOLS.includes('tempo') && DEFAULT_ORDER.includes('tempo'));
+  assert.ok(!LEGACY_TOOLS.includes('wrap') && DEFAULT_ORDER.includes('wrap'));
   // a layout saved before the speed tool: it gets the first empty cell
   const saved = ['dur-w', null, 'dur-h', 'settings', 'exit'];
   const r = addNewTools(saved, LEGACY_TOOLS);
-  assert.deepEqual(r.order, ['dur-w', 'tempo', 'dur-h', 'settings', 'exit']);
+  assert.deepEqual(r.order, ['dur-w', 'tempo', 'dur-h', 'settings', 'exit', 'wrap']);
   assert.ok(r.seen.includes('tempo'));
   // no empty cell: at the end
-  assert.deepEqual(addNewTools(['dur-w', 'exit'], LEGACY_TOOLS).order, ['dur-w', 'exit', 'tempo']);
+  assert.deepEqual(addNewTools(['dur-w', 'exit'], LEGACY_TOOLS).order, ['dur-w', 'exit', 'tempo', 'wrap']);
   // already known (the user hid it): it stays hidden
   assert.deepEqual(addNewTools(['dur-w', 'exit'], DEFAULT_ORDER).order, ['dur-w', 'exit']);
   // nothing new: nothing changes

@@ -27,6 +27,7 @@ const ZOOM_MIN = 0.3;
 const ZOOM_MAX = 4;
 // split sizes of the one-bar view: a fraction of a whole note (key = its denominator)
 const GRIDS = [['1', '1'], ['2', '1/2'], ['4', '1/4'], ['8', '1/8'], ['16', '1/16'], ['3', '1/3'], ['6', '1/6']];
+const MAX_BARS = 5; // the 'bars per line' option of the full-screen board
 const BOARD_ROOM = 360; // empty staff after the last note on the full-screen board
 const landscapeMQ = matchMedia('(orientation: landscape) and (max-height: 600px)'); // a phone held sideways
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -74,6 +75,7 @@ const state = {
   panelColors: normalizeColors(saved?.panelColors), // icon colour of tools on the panel: { toolId: '#rrggbb' }
   panelSeen: [], // the tools this layout already knew about (so a tool hidden on purpose stays hidden, a new one is added)
   tempoFavs: normalizeFavs(saved?.tempoFavs), // favourite speeds (BPM)
+  barsPerLine: saved?.barsPerLine === MAX_BARS ? MAX_BARS : 0, // full screen: 0 = one endless line sideways, 5 = at most 5 bars on a line, the lines going down
   barView: false, // full screen: one bar fills the screen, split by dotted lines to put notes on
   barIndex: 0, // which bar the one-bar view shows (zero-based)
   grid: GRIDS.some(([k]) => k === saved?.grid) ? saved.grid : '4',
@@ -95,7 +97,7 @@ const layouts = { original: null, mine: null };
 
 function persist() {
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify({ original: state.original, mine: state.mine, hideOriginal: state.hideOriginal, lib: state.lib, octave: state.octave, zoom: state.zoom, grid: state.grid, piano: state.piano, pianoW: state.pianoW, pianoPos: state.pianoPos, sound: state.sound, panel: state.panel, panelColors: state.panelColors, panelSeen: state.panelSeen, tempoFavs: state.tempoFavs }));
+    localStorage.setItem(STORE_KEY, JSON.stringify({ original: state.original, mine: state.mine, hideOriginal: state.hideOriginal, lib: state.lib, octave: state.octave, zoom: state.zoom, grid: state.grid, piano: state.piano, pianoW: state.pianoW, pianoPos: state.pianoPos, sound: state.sound, panel: state.panel, panelColors: state.panelColors, panelSeen: state.panelSeen, tempoFavs: state.tempoFavs, barsPerLine: state.barsPerLine }));
   } catch {}
 }
 
@@ -419,8 +421,9 @@ function renderCard(which) {
   if (horizontal) for (const w of WHICH) if (!isHidden(w)) width = Math.max(width, Math.ceil(layoutScore(state[w], 0, false).width));
   // full screen: a board with fixed coordinates. Its size depends on the music only (never on the window or the
   // zoom), so the start and the end of the staves stay where they are while you pan and scale.
-  if (state.full) width = Math.max(...WHICH.map((w) => Math.ceil(layoutScore(state[w], 0, false).width))) + BOARD_ROOM;
-  const { svg, layout } = renderScore(score, { width, wrap: !horizontal, status, selected, cursor, dim, fill: state.full });
+  const maxBars = state.full ? state.barsPerLine : 0;
+  if (state.full) width = Math.max(...WHICH.map((w) => Math.ceil(layoutScore(state[w], 0, false, false, false, { maxBars }).width))) + BOARD_ROOM;
+  const { svg, layout } = renderScore(score, { width, wrap: !horizontal, status, selected, cursor, dim, fill: state.full, maxBars });
   const scrollLeft = staff.scrollLeft;
   staff.classList.toggle('h-scroll', horizontal && !state.full);
   const svgEl = putSvg(staff, svg);
@@ -955,6 +958,8 @@ function syncToolbar() {
   $('#full-zoom-in').disabled = state.pinned || state.barView || state.zoom >= ZOOM_MAX;
   $('#full-zoom-out').disabled = state.pinned || state.barView || state.zoom <= ZOOM_MIN;
   $('#bar-mode').setAttribute('aria-pressed', String(state.barView));
+  $('#bars-wrap').setAttribute('aria-pressed', String(state.barsPerLine > 0));
+  $('#bars-wrap').disabled = state.barView;
   $('#grid-size').value = state.grid;
   if (state.barView) {
     $('#bar-label').textContent = `${state.barIndex + 1}/${barCount()}`;
@@ -1152,6 +1157,12 @@ function bindToolbar() {
   $('#bar-mode').addEventListener('click', () => {
     state.barView = !state.barView;
     if (state.barView) state.barIndex = Math.floor(cursorTime() / barLength(state[state.target]) + EPS);
+    render();
+    applyBoard();
+  });
+  $('#bars-wrap').addEventListener('click', () => {
+    state.barsPerLine = state.barsPerLine ? 0 : MAX_BARS;
+    persist();
     render();
     applyBoard();
   });
@@ -1853,7 +1864,7 @@ const PANEL_TOOLS = {
   piano: '#piano-toggle', sound: '#sound-open',
   erase: '#erase', 'erase-note': '[data-erase="note"]', 'erase-bar': '[data-erase="bar"]',
   undo: '#undo', redo: '#redo', check: '#check',
-  play: '#full-play', 'zoom-out': '#full-zoom-out', 'zoom-in': '#full-zoom-in', 'bar-mode': '#bar-mode', pin: '#board-pin',
+  play: '#full-play', 'zoom-out': '#full-zoom-out', 'zoom-in': '#full-zoom-in', 'bar-mode': '#bar-mode', wrap: '#bars-wrap', pin: '#board-pin',
   settings: '#panel-settings', exit: '#full-exit', tempo: '#tempo-open',
   'bar-prev': '#bar-prev', 'bar-label': '#bar-label', 'bar-next': '#bar-next', 'grid-size': '#grid-size',
 };
@@ -1862,7 +1873,7 @@ const PANEL_NAMES = {
   'acc-#': 'Sharp', 'acc-b': 'Flat', 'acc-n': 'Natural', 'voice-1': 'Voice 1', 'voice-2': 'Voice 2', rest: 'Rest',
   piano: 'Piano keys', sound: 'Sound', erase: 'Eraser', 'erase-note': 'Erase a note', 'erase-bar': 'Erase a bar',
   undo: 'Undo', redo: 'Redo', check: 'Check', play: 'Play', 'zoom-out': 'Smaller notes', 'zoom-in': 'Larger notes',
-  'bar-mode': 'One-bar view', pin: 'Fix position and zoom', settings: 'Panel layout (stays)', exit: 'Leave full screen (stays)',
+  'bar-mode': 'One-bar view', wrap: 'Bars per line', pin: 'Fix position and zoom', settings: 'Panel layout (stays)', exit: 'Leave full screen (stays)',
   'bar-prev': 'Previous bar', 'bar-label': 'Bar number', 'bar-next': 'Next bar', 'grid-size': 'Split size', tempo: 'Speed (BPM)',
 };
 const PANEL_IDS = Object.keys(PANEL_TOOLS);
