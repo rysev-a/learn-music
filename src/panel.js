@@ -20,11 +20,11 @@ export const DEFAULT_ORDER = [
   'pin', 'zoom-out', 'zoom-in',
   'settings', 'bar-mode', 'bar-prev',
   'bar-next', 'bar-label', 'grid-size',
-  'exit',
+  'wrap', 'exit',
 ];
 
 /** The tools a layout saved before the speed tool existed knew about. */
-export const LEGACY_TOOLS = DEFAULT_ORDER.filter((id) => id !== 'tempo');
+export const LEGACY_TOOLS = DEFAULT_ORDER.filter((id) => id !== 'tempo' && id !== 'wrap');
 
 const trim = (order) => {
   const out = [...order];
